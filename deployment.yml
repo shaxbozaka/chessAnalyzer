@@ -1,0 +1,17 @@
+# Deployment Configuration
+
+frontend:
+  path: ./chessReview
+  framework: create-react-app  # Assuming React is used based on package.json
+  build_command: npm run build
+  output_directory: build
+  deploy_targets:
+    - docker
+
+backend:
+  path: ./chessBackend
+  language: python
+  main_file: server.py
+  requirements: requirements.txt
+  deploy_targets:
+    - docker
