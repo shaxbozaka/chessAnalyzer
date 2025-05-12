@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import BoardAnalysis from '../components/BoardAnalysis';
+import BoardAnalysis, { MOVE_QUALITY } from '../components/BoardAnalysis';
 import GameSummary from '../components/GameSummary';
 
 const AnalysisPage = () => {
@@ -66,6 +66,27 @@ const AnalysisPage = () => {
     }
   };
 
+  // Utility to extract PGN tags
+  function parsePgnTags(pgn) {
+    const tags = {};
+    if (!pgn) return tags;
+    const tagRegex = /\[(\w+)\s+"([^"]*)"\]/g;
+    let match;
+    while ((match = tagRegex.exec(pgn)) !== null) {
+      tags[match[1]] = match[2];
+    }
+    return tags;
+  }
+
+  // Extract game details from PGN or location.state
+  const tags = parsePgnTags(pgn);
+  const white = location.state?.username || tags.White || 'Unknown';
+  const black = location.state?.opponent || tags.Black || 'Unknown';
+  const result = location.state?.result || tags.Result || 'Unknown';
+  const date = location.state?.date || tags.Date || 'Unknown';
+  const opening = location.state?.opening || tags.Opening || tags.ECO || 'Unknown';
+  const playerColor = location.state?.playerColor || (username && (username.toLowerCase() === (tags.White || '').toLowerCase() ? 'white' : 'black'));
+
   return (
     <div className="min-h-screen flex flex-col items-center bg-gray-50 dark:bg-gray-900 pb-10 transition-colors duration-200">
       <div className="w-full max-w-5xl mt-8 px-4">
@@ -80,19 +101,27 @@ const AnalysisPage = () => {
         {error && <div className="text-center text-red-500 dark:text-red-400">{error}</div>}
         {!loading && !error && pgn && (
           <>
-            <BoardAnalysis 
-              pgn={pgn} 
-              username={username} 
-              onAnalysisComplete={handleAnalysisComplete}
-              playerColor={location.state?.playerColor}
-            />
-            {analysis.length > 0 && (
-              <GameSummary 
-                analysis={analysis} 
-                pgn={pgn} 
-                username={username} 
-              />
-            )}
+            {/* Add a new section for game details and move analysis */}
+            {/* Update the layout to include game details, interactive board, and move analysis */}
+            <div className="game-details bg-white dark:bg-gray-800 p-4 rounded shadow mb-4">
+              <h2 className="text-xl font-bold mb-2 text-gray-800 dark:text-gray-100">Game Details</h2>
+              <p className="text-gray-800 dark:text-gray-100">White: {white}</p>
+              <p className="text-gray-800 dark:text-gray-100">Black: {black}</p>
+              <p className="text-gray-800 dark:text-gray-100">Result: {result}</p>
+              <p className="text-gray-800 dark:text-gray-100">Date: {date}</p>
+              <p className="text-gray-800 dark:text-gray-100">Opening: {opening}</p>
+            </div>
+
+            <div className="board-and-analysis flex flex-col lg:flex-row gap-4">
+              <div className="interactive-board flex-1">
+                <BoardAnalysis 
+                  pgn={pgn} 
+                  username={username} 
+                  onAnalysisComplete={handleAnalysisComplete}
+                  playerColor={playerColor}
+                />
+              </div>
+            </div>
           </>
         )}
       </div>

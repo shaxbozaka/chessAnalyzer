@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 // Move quality labels and colors (Chess.com style)
-const MOVE_QUALITY = {
+export const MOVE_QUALITY = {
   brilliant: { label: 'Brilliant', color: 'bg-cyan-500 text-white', squareColor: 'rgba(6, 182, 212, 0.5)' },
   great: { label: 'Great Move', color: 'bg-blue-400 text-white', squareColor: 'rgba(96, 165, 250, 0.5)' },
   best: { label: 'Best', color: 'bg-lime-500 text-white', squareColor: 'rgba(132, 204, 22, 0.5)' },
@@ -33,6 +33,26 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
   
   // UI state
   const [reviewLoading, setReviewLoading] = useState(false);
+  const boardContainerRef = useRef(null);
+  const [boardWidth, setBoardWidth] = useState(null);
+
+  // Responsive board width using ResizeObserver
+  useEffect(() => {
+    if (!boardContainerRef.current) return;
+    const container = boardContainerRef.current;
+    function updateBoardWidth() {
+      const containerWidth = container.offsetWidth;
+      setBoardWidth(Math.max(200, Math.min(containerWidth, 500)));
+    }
+    updateBoardWidth();
+    let resizeObserver = new window.ResizeObserver(updateBoardWidth);
+    resizeObserver.observe(container);
+    window.addEventListener('resize', updateBoardWidth);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateBoardWidth);
+    };
+  }, []);
 
   // Load the PGN data when it changes
   useEffect(() => {
@@ -91,27 +111,22 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
       })
       .then(data => {
         console.log('Analysis response:', data);
-        
-        // Check if response contains moves array
         if (data && data.moves && Array.isArray(data.moves)) {
-          // Process the moves as they come from the API
           const analysisResults = data.moves.map((item, index) => {
             const moveObj = moves[index] || {};
+            // Only use moveObj.san or item.move (no item.san)
+            const playedSan = moveObj.san || item.move || '';
             const quality = item.quality ? item.quality.toLowerCase() : 'ordinary';
-            
             return {
               move: moveObj,
-              playedSan: moveObj.san || '',
-              bestSan: '', 
+              playedSan,
+              bestSan: '',
               eval: '0.0',
               label: quality in MOVE_QUALITY ? quality : 'ordinary',
               comment: item.comment || ''
             };
           });
-          
           setAnalysis(analysisResults);
-          
-          // Store the summary directly
           if (data.summary) {
             setGameReview({
               content: data.summary,
@@ -283,93 +298,63 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
     };
   };
 
-  // MoveQualityStats component (receives analysis as a prop)
-  const MoveQualitySummary = ({ analysis }) => {
-    if (!analysis || analysis.length === 0) return null;
-    
-    // Count moves by quality and side
-    const counts = {
-      white: {
-        brilliant: 0,
-        great: 0,
-        best: 0,
-        good: 0,
-        inaccuracy: 0,
-        mistake: 0,
-        blunder: 0,
-        ordinary: 0
-      },
-      black: {
-        brilliant: 0,
-        great: 0,
-        best: 0,
-        good: 0,
-        inaccuracy: 0,
-        mistake: 0,
-        blunder: 0,
-        ordinary: 0
-      }
-    };
-    
-    // Count the moves by quality and side
-    analysis.forEach((item, index) => {
-      if (!item || !item.label) return;
-      
-      const side = index % 2 === 0 ? 'white' : 'black';
-      const quality = item.label.toLowerCase();
-      
-      // Make sure the quality is one we track
-      if (counts[side].hasOwnProperty(quality)) {
-        counts[side][quality]++;
-      }
-    });
-    
-    // Helper to render a quality row
-    const renderQualityRow = (quality) => {
-      const whiteCount = counts.white[quality] || 0;
-      const blackCount = counts.black[quality] || 0;
-      const totalCount = whiteCount + blackCount;
-      
-      if (totalCount === 0) return null;
-      
-      // Extract the background color class without text color
-      const bgColorClass = MOVE_QUALITY[quality]?.color.split(' ')[0] || '';
-      
-      return (
-        <div className="flex items-center gap-2 py-1" key={quality}>
-          <div className={`w-5 h-5 ${bgColorClass} rounded`}></div>
-          <span className="text-lg">{quality}</span>
-          <span className="ml-auto flex gap-4">
-            <span>{whiteCount}</span>
-            <span>{blackCount}</span>
-          </span>
-        </div>
-      );
-    };
-    
+  // MoveQualityStats component (receives analysis and loading as props)
+  const MoveQualitySummary = ({ analysis, loading }) => {
     return (
-      <div className="bg-gray-900 text-white p-4 rounded-lg w-[300px] dark:bg-gray-800">
+      <div className="bg-gray-900 text-white p-4 rounded-lg w-[300px] dark:bg-gray-800 flex flex-col items-center justify-center min-h-[200px]">
         <h2 className="text-2xl font-bold text-center mb-4">Move Quality Summary</h2>
-        
-        <div className="flex justify-between mb-2">
-          <span className="text-gray-400">White</span>
-          <span className="text-gray-400">Black</span>
-        </div>
-        
-        {renderQualityRow('brilliant')}
-        {renderQualityRow('great')}
-        {renderQualityRow('best')}
-        {renderQualityRow('good')}
-        {renderQualityRow('inaccuracy')}
-        {renderQualityRow('mistake')}
-        {renderQualityRow('blunder')}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-full">
+            <svg className="animate-spin h-8 w-8 text-blue-400 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-blue-300">Analyzing moves...</span>
+          </div>
+        ) : (
+          <>
+            {(!analysis || analysis.length === 0) ? (
+              <div className="text-gray-400 text-center">No analysis available.</div>
+            ) : (
+              <>
+                <div className="flex justify-between mb-2 w-full">
+                  <span className="text-gray-400">White</span>
+                  <span className="text-gray-400">Black</span>
+                </div>
+                {['brilliant','great','best','good','inaccuracy','mistake','blunder'].map(quality => {
+                  // Count moves by quality and side
+                  const counts = {white: 0, black: 0};
+                  analysis.forEach((item, idx) => {
+                    if (item && item.label && item.label.toLowerCase() === quality) {
+                      const side = idx % 2 === 0 ? 'white' : 'black';
+                      counts[side]++;
+                    }
+                  });
+                  const total = counts.white + counts.black;
+                  if (total === 0) return null;
+                  const bgColorClass = MOVE_QUALITY[quality]?.color.split(' ')[0] || '';
+                  return (
+                    <div className="flex items-center gap-2 py-1 w-full" key={quality}>
+                      <div className={`w-5 h-5 ${bgColorClass} rounded`}></div>
+                      <span className="text-lg">{quality}</span>
+                      <span className="ml-auto flex gap-4">
+                        <span>{counts.white}</span>
+                        <span>{counts.black}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </>
+        )}
       </div>
     );
   };
 
   // Render the component
   return (
-    <div className="flex flex-col items-center">      
+    <div className="flex flex-col items-center">
       {error && (
         <div className="w-full max-w-[600px] bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded mb-4">
           {error}
@@ -400,43 +385,52 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
           )}
           
           {/* Chessboard */}
-          <div className="w-[min(80vw,500px)] h-[min(80vw,500px)] rounded overflow-hidden shadow-lg bg-gray-50 dark:bg-gray-800">
-            <Chessboard
-              id="analysis-board"
-              position={position}
-              boardWidth={500}
-              arePiecesDraggable={false}
-              animationDuration={300}
-              customSquareStyles={getHighlightSquare()}
-              boardOrientation={playerColor === 'black' ? 'black' : 'white'}
-              customDarkSquareStyle={{ backgroundColor: '#769656' }} 
-              customLightSquareStyle={{ backgroundColor: '#eeeed2' }}
-            />
+          <div ref={boardContainerRef} className="w-full max-w-[500px] aspect-square mx-auto">
+            {boardWidth ? (
+              <Chessboard
+                id="analysis-board"
+                position={position}
+                boardWidth={boardWidth}
+                arePiecesDraggable={false}
+                animationDuration={300}
+                customSquareStyles={getHighlightSquare()}
+                boardOrientation={playerColor === 'black' ? 'black' : 'white'}
+                customDarkSquareStyle={{ backgroundColor: '#769656' }}
+                customLightSquareStyle={{ backgroundColor: '#eeeed2' }}
+              />
+            ) : (
+              <div className="flex items-center justify-center w-full h-full min-h-[200px]">
+                <svg className="animate-spin h-8 w-8 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            )}
           </div>
           
           {/* Navigation buttons */}
-          <div className="flex justify-center mt-4 gap-2">
+          <div className="navigation-buttons flex justify-center mt-4 gap-2">
             <button 
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 transition-colors duration-200"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-gray-700"
               onClick={() => goToMove(currentMove - 1)}
               disabled={currentMove === 0}
             >
               Previous
             </button>
             <button
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 transition-colors duration-200"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-gray-700"
               onClick={() => goToMove(0)}
             >
               Start
             </button>
             <button
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 transition-colors duration-200"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-gray-700"
               onClick={() => goToMove(moves.length)}
             >
               End
             </button>
             <button
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 transition-colors duration-200"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-gray-700"
               onClick={() => goToMove(currentMove + 1)}
               disabled={currentMove >= moves.length}
             >
@@ -501,13 +495,10 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
             </div>
           )}
         </div>
-        
-        {/* Move quality stats */}
-        {analysis.length > 0 && (
-          <div className="w-full lg:w-auto">
-            <MoveQualitySummary analysis={analysis} />
-          </div>
-        )}
+        {/* Move quality stats/modal always visible */}
+        <div className="w-full lg:w-auto">
+          <MoveQualitySummary analysis={analysis} loading={loading} />
+        </div>
       </div>
     </div>
   );
