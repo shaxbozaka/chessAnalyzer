@@ -37,6 +37,9 @@ class MoveAnalysis(BaseModel):
     is_book: bool
     comment: Optional[str] = None
     eval: Optional[float] = None
+    eval_before: Optional[float] = None  # Eval before move (for win probability calculation)
+    best_move: Optional[str] = None
+    cp_loss: Optional[int] = None  # Centipawn loss for accuracy calculation
 
 class AnalysisResponse(BaseModel):
     moves: List[MoveAnalysis]

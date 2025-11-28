@@ -4,11 +4,12 @@ services:
       context: ./chessReview
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3002:3000"
     depends_on:
       - backend
     networks:
       - chess-network
+    restart: unless-stopped
 
   backend:
     build:
@@ -18,9 +19,10 @@ services:
       - PORT=5000
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     ports:
-      - "8080:5000"  # Expose internal port 5000 as 8080 on host
+      - "8081:5000"
     networks:
       - chess-network
+    restart: unless-stopped
 
 networks:
   chess-network:
