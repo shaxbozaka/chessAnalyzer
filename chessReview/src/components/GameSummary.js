@@ -9,14 +9,15 @@ const GameSummary = ({ analysis, pgn, username }) => {
     acc.total++;
     acc[item.label]++;
     return acc;
-  }, { total: 0, excellent: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 });
+  }, { total: 0, brilliant: 0, excellent: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 });
 
   // Calculate accuracy percentage
   const weightedScore = (
-    stats.excellent * 100 + 
-    stats.good * 80 + 
-    stats.inaccuracy * 50 + 
-    stats.mistake * 20 + 
+    stats.brilliant * 100 +
+    stats.excellent * 100 +
+    stats.good * 80 +
+    stats.inaccuracy * 50 +
+    stats.mistake * 20 +
     stats.blunder * 0
   );
   const maxPossibleScore = stats.total * 100;
@@ -45,18 +46,19 @@ const GameSummary = ({ analysis, pgn, username }) => {
     doc.text('Game Statistics', 20, 55);
     doc.setFontSize(12);
     doc.text(`Accuracy: ${accuracy}%`, 25, 65);
-    doc.text(`Excellent moves: ${stats.excellent}`, 25, 72);
-    doc.text(`Good moves: ${stats.good}`, 25, 79);
-    doc.text(`Inaccuracies: ${stats.inaccuracy}`, 25, 86);
-    doc.text(`Mistakes: ${stats.mistake}`, 25, 93);
-    doc.text(`Blunders: ${stats.blunder}`, 25, 100);
+    doc.text(`Brilliant moves: ${stats.brilliant}`, 25, 72);
+    doc.text(`Excellent moves: ${stats.excellent}`, 25, 79);
+    doc.text(`Good moves: ${stats.good}`, 25, 86);
+    doc.text(`Inaccuracies: ${stats.inaccuracy}`, 25, 93);
+    doc.text(`Mistakes: ${stats.mistake}`, 25, 100);
+    doc.text(`Blunders: ${stats.blunder}`, 25, 107);
     
     // Critical mistakes
     doc.setFontSize(16);
-    doc.text('Critical Moments', 20, 115);
+    doc.text('Critical Moments', 20, 122);
     doc.setFontSize(12);
-    
-    let yPos = 125;
+
+    let yPos = 132;
     if (criticalMistakes.length === 0) {
       doc.text('No critical mistakes found. Well played!', 25, yPos);
     } else {
@@ -151,23 +153,27 @@ const GameSummary = ({ analysis, pgn, username }) => {
           
           <div className="grid grid-cols-2 gap-2">
             <div className="flex items-center">
-              <div className="w-4 h-4 rounded-full bg-green-500 mr-2"></div>
+              <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: '#1baca6' }}></div>
+              <span>Brilliant: {stats.brilliant}</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: '#96bc4b' }}></div>
               <span>Excellent: {stats.excellent}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-4 h-4 rounded-full bg-blue-500 mr-2"></div>
+              <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: '#81b64c' }}></div>
               <span>Good: {stats.good}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-4 h-4 rounded-full bg-yellow-500 mr-2"></div>
+              <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: '#f7c631' }}></div>
               <span>Inaccuracies: {stats.inaccuracy}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-4 h-4 rounded-full bg-orange-500 mr-2"></div>
+              <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: '#ffa459' }}></div>
               <span>Mistakes: {stats.mistake}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-4 h-4 rounded-full bg-red-500 mr-2"></div>
+              <div className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: '#fa412d' }}></div>
               <span>Blunders: {stats.blunder}</span>
             </div>
           </div>

@@ -31,38 +31,90 @@ def is_book_move(board, book_path, cache=None):
         return False
 
 
-def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_sacrifice, played_eval, best_eval, alt_evals=None):
-    """Chess.com-style brilliant move detection."""
-    if is_book:
-        return "book"
-    elif forced:
-        return "forced"
+def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_sacrifice, played_eval, best_eval, is_checkmate=False, best_move_san=None, is_competitive=True):
+    """
+    Chess.com-style move quality classification with commentary.
 
-    # Default quality classification
-    if abs_delta <= 20:
+    Brilliant move criteria (Chess.com algorithm as of March 2021):
+    1. Must be a sacrifice (gives up material)
+    2. Must be the best or nearly best move (doesn't weaken position)
+    3. Must be in a competitive position (not already winning by a lot)
+    4. In endgame: must be the ONLY good move
+    5. In opening/middlegame: can be one of several good options
+    """
+    comment = ""
+
+    if is_checkmate:
+        return "best", "Checkmate! The perfect finishing move."
+
+    if is_book:
+        return "book", "Opening theory - a well-established move in this position."
+
+    if forced:
+        return "forced", "The only legal move available."
+
+    # Default quality classification (Chess.com thresholds)
+    if abs_delta <= 10:
         quality = "best"
+        comment = "This is the engine's top choice."
+    elif abs_delta <= 25:
+        quality = "great"
+        comment = "An excellent move - very close to the best option."
     elif abs_delta <= 50:
         quality = "good"
+        comment = "A reasonable move that keeps the position solid."
     elif abs_delta <= 100:
         quality = "inaccuracy"
+        if best_move_san:
+            comment = f"A small slip. {best_move_san} was more accurate."
+        else:
+            comment = "A small slip - there was a more precise continuation."
     elif abs_delta <= 300:
         quality = "mistake"
+        if best_move_san:
+            comment = f"This gives away some advantage. {best_move_san} was much better."
+        else:
+            comment = "This gives away significant advantage. A better move was available."
     else:
         quality = "blunder"
+        if played_eval is not None:
+            # Check if it's a game-losing blunder
+            if side_to_move == chess.WHITE and played_eval < -500:
+                comment = "A critical error that likely loses the game."
+            elif side_to_move == chess.BLACK and played_eval > 500:
+                comment = "A critical error that likely loses the game."
+            elif best_move_san:
+                comment = f"A serious mistake. {best_move_san} was necessary to stay in the game."
+            else:
+                comment = "A serious mistake that dramatically worsens the position."
+        else:
+            comment = "A serious mistake that dramatically worsens the position."
 
-    # Chess.com-style brilliant move logic
-    # - Must be a sacrifice
-    # - Must be the only move that avoids a huge eval drop (all other moves lose >= 1.5 pawns compared to this move)
-    # - Must not be the top engine move (but is the only move that keeps eval high)
-    if is_sacrifice and alt_evals is not None and played_eval is not None:
-        # Find the second-best move's eval (excluding the played move)
-        alt_diffs = [abs(played_eval - e) for e in alt_evals if e is not None]
-        if alt_diffs:
-            min_alt_diff = min(alt_diffs)
-            # If all other moves are at least 1.5 pawns worse
-            if min_alt_diff >= 150 and played_eval >= 150:
+    # Chess.com-style brilliant move detection
+    # Based on: https://support.chess.com/en/articles/8572705-how-are-moves-classified
+    # "Brilliant moves must sacrifice material and be the best (or nearly best) move"
+    # "Must be in a competitive position (not already winning by a lot)"
+
+    if quality in ("best", "great") and is_sacrifice and played_eval is not None and is_competitive:
+        # A sacrifice is brilliant if:
+        # 1. It sacrifices material (is_sacrifice=True)
+        # 2. It's a strong move (best or great quality)
+        # 3. The position is competitive (not already winning by too much)
+        # 4. The position after the sacrifice is still favorable or equal
+
+        # Check if the sacrifice maintains a reasonable position
+        if side_to_move == chess.WHITE:
+            # White sacrificed and position is still okay (not losing)
+            if played_eval >= -100:  # Allow slight disadvantage after sacrifice
                 quality = "brilliant"
-    return quality
+                comment = "A brilliant sacrifice! Material is given up but the position remains strong."
+        else:
+            # Black sacrificed and position is still okay (not losing)
+            if played_eval <= 100:  # Allow slight disadvantage after sacrifice
+                quality = "brilliant"
+                comment = "A brilliant sacrifice! Material is given up but the position remains strong."
+
+    return quality, comment
 
 
 # Worker function for parallel evaluation
@@ -94,17 +146,91 @@ def evaluate_position(position_data):
     return position.fen(), eval_score
 
 
+PIECE_VALUES = {
+    chess.PAWN: 1,
+    chess.KNIGHT: 3,
+    chess.BISHOP: 3,
+    chess.ROOK: 5,
+    chess.QUEEN: 9,
+    chess.KING: 0
+}
+
+
+def is_sacrifice_move(board, move):
+    """
+    Chess.com-style sacrifice detection.
+    A move is a sacrifice if you intentionally give up material for positional/tactical compensation.
+
+    True sacrifices:
+    1. Putting a piece en prise (can be captured) where you lose material
+    2. Exchange sacrifice (Rook for minor piece)
+    3. Quality sacrifice where material is genuinely lost
+
+    NOT sacrifices:
+    - Normal captures even if piece can be recaptured (Qxf3 taking a defended piece)
+    - Trades where material is roughly equal
+    """
+    moving_piece = board.piece_at(move.from_square)
+    if moving_piece is None:
+        return False
+
+    moving_value = PIECE_VALUES.get(moving_piece.piece_type, 0)
+    side = board.turn
+
+    # Get captured piece value (if any)
+    captured_piece = board.piece_at(move.to_square)
+    captured_value = PIECE_VALUES.get(captured_piece.piece_type, 0) if captured_piece else 0
+
+    # Make the move temporarily
+    board_copy = board.copy()
+    board_copy.push(move)
+
+    to_square = move.to_square
+
+    # Check if the moved piece can be captured by opponent
+    attackers = board_copy.attackers(not side, to_square)
+
+    if not attackers:
+        # Piece is safe after the move
+        # Only a sacrifice if we captured something worth much less than our piece
+        # E.g., Queen takes undefended pawn is not a sacrifice (piece is safe)
+        return False
+
+    # Piece can be taken after the move - calculate net material
+    # If opponent recaptures, we lose our piece but keep what we captured
+    # Net material change = captured_value - moving_value
+    # It's a sacrifice if we lose material (net < 0) AND the loss is significant
+
+    net_material = captured_value - moving_value
+
+    # Check if it's a genuine sacrifice (losing material)
+    # A sacrifice must lose at least 2 points of material to be meaningful
+    # This excludes normal trades and minor imbalances
+    if net_material <= -2:
+        # Losing at least 2 points - this is a sacrifice
+        # E.g., Knight (3) for pawn (1) = -2, Queen (9) for Rook (5) = -4
+        return True
+
+    # Special case: putting a piece en prise without capturing anything
+    # E.g., moving a piece to a square where it can be taken
+    if captured_value == 0 and moving_value >= 3:
+        # Moving a minor piece or higher to an attacked square without taking anything
+        defenders = board_copy.attackers(side, to_square)
+        if not defenders:
+            # Undefended piece sacrifice
+            return True
+        # Defended but can be taken by lower value piece
+        min_attacker_value = min(PIECE_VALUES.get(board_copy.piece_at(sq).piece_type, 0) for sq in attackers)
+        if moving_value > min_attacker_value + 2:
+            # E.g., putting Knight on square attacked by pawn
+            return True
+
+    return False
+
+
 def count_material(board):
     material = {'white': 0, 'black': 0}
-    # Standard piece values: pawn=1, knight=3, bishop=3, rook=5, queen=9
-    piece_values = {
-        chess.PAWN: 1,
-        chess.KNIGHT: 3,
-        chess.BISHOP: 3,
-        chess.ROOK: 5,
-        chess.QUEEN: 9,
-        chess.KING: 0  # King has no material value in this context
-    }
+    piece_values = PIECE_VALUES
     
     for square in chess.SQUARES:
         piece = board.piece_at(square)
@@ -181,45 +307,63 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
         legal = list(curr_board.legal_moves)
         forced = in_check and len(legal) == 1 and legal[0] == move
         eval_before = eval_cache.get(pos_before_fen)
-        # Evaluate all legal moves for Chess.com-style brilliant detection
-        alt_evals = []
-        for alt_move in legal:
-            if alt_move == move:
-                continue
-            alt_board = curr_board.copy()
-            alt_board.push(alt_move)
-            alt_eval = eval_cache.get(alt_board.fen())
-            alt_evals.append(alt_eval)
+
+        # Check if this move is a sacrifice BEFORE making the move
+        is_sacrifice = is_sacrifice_move(curr_board, move)
+
         curr_board.push(move)
         pos_after_fen = curr_board.fen()
         eval_after = eval_cache.get(pos_after_fen)
+
+        # Check if this move is checkmate or stalemate
+        is_checkmate = curr_board.is_checkmate()
+        is_stalemate = curr_board.is_stalemate()
+
+        # Calculate centipawn loss (how much worse the played move is vs best move)
+        # eval_before is the best eval from the position (what engine would play)
+        # eval_after is the eval after the played move
+        # For White moving: good move keeps/increases eval, so loss = eval_before - eval_after (if positive = bad)
+        # For Black moving: good move decreases eval, so loss = eval_after - eval_before (if positive from black's view = bad)
         delta = 0
         abs_delta = 0
-        if eval_before is not None and eval_after is not None:
-            delta = eval_after - eval_before
-            abs_delta = abs(delta)
-        is_sacrifice = False
-        board_before = chess.Board(pos_before_fen)
-        board_after = chess.Board(pos_after_fen)
-        if board_after is not None and board_before is not None:
-            material_before = count_material(board_before)
-            material_after = count_material(board_after)
+
+        # Handle checkmate - it's always the best move!
+        if is_checkmate:
+            abs_delta = 0  # Perfect move, no loss
+        elif is_stalemate:
+            # Stalemate might be good or bad depending on position
+            abs_delta = 0 if eval_before is None or abs(eval_before) < 200 else 100
+        elif eval_before is not None and eval_after is not None:
             if side_to_move == chess.WHITE:
-                if material_after['white'] < material_before['white']:
-                    is_sacrifice = True
+                # White wants eval to stay high/increase. Loss = how much eval dropped
+                delta = eval_before - eval_after
             else:
-                if material_after['black'] < material_before['black']:
-                    is_sacrifice = True
-        # Use new brilliant logic
-        quality = determine_move_quality(
+                # Black wants eval to decrease. Loss = how much eval increased (bad for black)
+                delta = eval_after - eval_before
+            # Centipawn loss should be positive when move is worse than best
+            abs_delta = max(0, delta)  # Only count as loss if it's actually worse
+        # Determine if position is competitive (not already winning by too much)
+        # Chess.com: brilliant moves only occur in competitive positions
+        is_competitive = True
+        if eval_before is not None:
+            # If already up by more than 5 pawns (500 centipawns), position is not competitive
+            if side_to_move == chess.WHITE and eval_before > 500:
+                is_competitive = False
+            elif side_to_move == chess.BLACK and eval_before < -500:
+                is_competitive = False
+
+        # Use Chess.com-style brilliant logic with commentary
+        quality, comment = determine_move_quality(
             abs_delta, delta, side_to_move, is_book, forced, is_sacrifice,
-            eval_after, eval_before, alt_evals=alt_evals
+            eval_after, eval_before, is_checkmate=is_checkmate, is_competitive=is_competitive
         )
         analysis.append({
             "ply": i + 1,
             "move": san,
             "quality": quality,
-            "is_book": is_book
+            "is_book": is_book,
+            "comment": comment,
+            "eval": eval_after / 100 if eval_after is not None else None  # Convert to pawns
         })
     
     return analysis
@@ -239,4 +383,3 @@ def get_moves_needing_review(pgn_data, stockfish_path=None, book_path=None):
     return moves_to_review
 
 
-# pgn_data = """[Event "Live Chess"]\n[Site "Chess.com"]\n[Date "2025.04.20"]\n[Round "-"]\n[White "senxdes"]\n[Black "shaxbozaka"]\n[Result "0-1"]\n[CurrentPosition "N6Q/p3bppp/4pk2/1p1p1b2/3N4/1KP5/PP1nP1PP/5R2 w - - 1 22"]\n[Timezone "UTC"]\n[ECO "D00"]\n[ECOUrl "https://www.chess.com/openings/Queens-Pawn-Opening-Accelerated-London-System"]\n[UTCDate "2025.04.20"]\n[UTCTime "02:58:51"]\n[WhiteElo "760"]\n[BlackElo "779"]\n[TimeControl "180+2"]\n[Termination "shaxbozaka won by checkmate"]\n[StartTime "02:58:51"]\n[EndDate "2025.04.20"]\n[EndTime "03:02:26"]\n[Link "https://www.chess.com/game/live/137575323280"]\n\n1. d4 {[%clk 0:03:01.3]} 1... d5 {[%clk 0:03:00.7]} 2. Bf4 {[%clk 0:03:02.7]} 2... Nc6 {[%clk 0:03:01.9]} 3. Nc3 {[%clk 0:03:04.3]} 3... Nxd4 {[%clk 0:03:01.3]} 4. Qxd4 {[%clk 0:03:05]} 4... Nf6 {[%clk 0:03:01.5]} 5. Nb5 {[%clk 0:03:05.4]} 5... Ne4 {[%clk 0:02:33.7]} 6. Nxc7+ {[%clk 0:03:03.6]} 6... Kd7 {[%clk 0:02:31.9]} 7. Nxa8 {[%clk 0:03:04.5]} 7... Qa5+ {[%clk 0:02:23.8]} 8. c3 {[%clk 0:03:03.3]} 8... Qc5 {[%clk 0:02:14.6]} 9. Qa4+ {[%clk 0:03:00.6]} 9... b5 {[%clk 0:02:10.3]} 10. Qa5 {[%clk 0:02:53.9]} 10... Qxf2+ {[%clk 0:02:08.4]} 11. Kd1 {[%clk 0:02:54.2]} 11... Qxf1+ {[%clk 0:02:04.9]} 12. Kc2 {[%clk 0:02:54.1]} 12... Qxf4 {[%clk 0:01:53.6]} 13. Nf3 {[%clk 0:02:54.6]} 13... Nf2 {[%clk 0:01:40.2]} 14. Rhf1 {[%clk 0:02:52.6]} 14... Qf5+ {[%clk 0:01:40.4]} 15. Kb3 {[%clk 0:02:49]} 15... Ne4 {[%clk 0:01:26.5]} 16. Qc7+ {[%clk 0:02:46.1]} 16... Ke6 {[%clk 0:01:17.4]} 17. Nd4+ {[%clk 0:02:46.8]} 17... Kf6 {[%clk 0:01:15.9]} 18. Rxf5+ {[%clk 0:02:47.1]} 18... Bxf5 {[%clk 0:01:17.1]} 19. Rf1 {[%clk 0:02:46.1]} 19... e6 {[%clk 0:01:17.1]} 20. Qd8+ {[%clk 0:02:43.7]} 20... Be7 {[%clk 0:01:15.2]} 21. Qxh8 {[%clk 0:02:43.3]} 21... Nd2# {[%clk 0:01:15.1]} 0-1"""

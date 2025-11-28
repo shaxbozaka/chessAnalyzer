@@ -35,6 +35,8 @@ class MoveAnalysis(BaseModel):
     move: str
     quality: str
     is_book: bool
+    comment: Optional[str] = None
+    eval: Optional[float] = None
 
 class AnalysisResponse(BaseModel):
     moves: List[MoveAnalysis]
@@ -43,6 +45,7 @@ class ReviewResponse(BaseModel):
     summary: str
     player_focused: bool
 
+@app.post("/api/analyze", response_model=AnalysisResponse)
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_chess_game(request: PGNRequest):
     try:
@@ -56,6 +59,7 @@ async def analyze_chess_game(request: PGNRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/review", response_model=ReviewResponse)
 @app.post("/review", response_model=ReviewResponse)
 async def review_chess_game(request: ReviewRequest):
     try:

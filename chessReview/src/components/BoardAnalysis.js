@@ -4,18 +4,18 @@ import { Chessboard } from 'react-chessboard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-// Move quality labels and colors (Chess.com style)
+// Move quality labels and colors (Chess.com exact colors)
 export const MOVE_QUALITY = {
-  brilliant: { label: 'Brilliant', color: 'bg-cyan-500 text-white', squareColor: 'rgba(6, 182, 212, 0.5)' },
-  great: { label: 'Great Move', color: 'bg-blue-400 text-white', squareColor: 'rgba(96, 165, 250, 0.5)' },
-  best: { label: 'Best', color: 'bg-lime-500 text-white', squareColor: 'rgba(132, 204, 22, 0.5)' },
-  good: { label: 'Good Move', color: 'bg-green-500 text-white', squareColor: 'rgba(34, 197, 94, 0.5)' },
-  inaccuracy: { label: 'Inaccuracy', color: 'bg-yellow-500 text-white', squareColor: 'rgba(234, 179, 8, 0.5)' },
-  mistake: { label: 'Mistake', color: 'bg-orange-500 text-white', squareColor: 'rgba(249, 115, 22, 0.5)' },
-  blunder: { label: 'Blunder', color: 'bg-red-600 text-white', squareColor: 'rgba(220, 38, 38, 0.5)' },
-  ordinary: { label: 'Ordinary', color: 'bg-gray-300 text-gray-700', squareColor: 'rgba(156, 163, 175, 0.3)' },
-  book: { label: 'Book Move', color: 'bg-amber-300 text-amber-800', squareColor: 'rgba(252, 211, 77, 0.5)' },
-  forced: { label: 'Forced Move', color: 'bg-gray-500 text-white', squareColor: 'rgba(107, 114, 128, 0.5)' }
+  brilliant: { label: 'Brilliant', color: 'text-white', bgColor: '#1baca6', squareColor: 'rgba(27, 172, 166, 0.5)' },
+  great: { label: 'Great Move', color: 'text-white', bgColor: '#5c8bb0', squareColor: 'rgba(92, 139, 176, 0.5)' },
+  best: { label: 'Best', color: 'text-white', bgColor: '#96bc4b', squareColor: 'rgba(150, 188, 75, 0.5)' },
+  good: { label: 'Good Move', color: 'text-white', bgColor: '#81b64c', squareColor: 'rgba(129, 182, 76, 0.5)' },
+  inaccuracy: { label: 'Inaccuracy', color: 'text-black', bgColor: '#f7c631', squareColor: 'rgba(247, 198, 49, 0.5)' },
+  mistake: { label: 'Mistake', color: 'text-white', bgColor: '#ffa459', squareColor: 'rgba(255, 164, 89, 0.5)' },
+  blunder: { label: 'Blunder', color: 'text-white', bgColor: '#fa412d', squareColor: 'rgba(250, 65, 45, 0.5)' },
+  ordinary: { label: 'Ordinary', color: 'text-gray-700', bgColor: '#d1d5db', squareColor: 'rgba(156, 163, 175, 0.3)' },
+  book: { label: 'Book Move', color: 'text-white', bgColor: '#a88865', squareColor: 'rgba(168, 136, 101, 0.5)' },
+  forced: { label: 'Forced Move', color: 'text-white', bgColor: '#97af8b', squareColor: 'rgba(151, 175, 139, 0.5)' }
 };
 
 const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
@@ -121,7 +121,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
               move: moveObj,
               playedSan,
               bestSan: '',
-              eval: '0.0',
+              eval: item.eval !== null && item.eval !== undefined ? item.eval.toFixed(2) : null,
               label: quality in MOVE_QUALITY ? quality : 'ordinary',
               comment: item.comment || ''
             };
@@ -270,31 +270,37 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
 
   // Get style for a move button
   const getMoveStyle = (idx) => {
-    const isSelected = idx === currentMove - 1;
     const quality = analysis && idx < analysis.length ? analysis[idx]?.label : null;
-    const style = quality ? MOVE_QUALITY[quality]?.color : 'bg-gray-200 text-gray-700';
-    
-    return isSelected ? style : style;
+    const qualityInfo = quality ? MOVE_QUALITY[quality] : null;
+
+    return {
+      backgroundColor: qualityInfo?.bgColor || '#e5e7eb',
+      color: qualityInfo?.bgColor ? (qualityInfo.color === 'text-black' ? '#000' : '#fff') : '#374151'
+    };
   };
 
   // Get current move quality information
   const currentMoveInfo = () => {
     if (currentMove === 0 || !analysis || analysis.length < currentMove) return null;
-    
+
     const moveAnalysis = analysis[currentMove - 1];
     if (!moveAnalysis) return null;
-    
+
     const quality = moveAnalysis.label;
+    const qualityInfo = MOVE_QUALITY[quality];
     const moveText = moves[currentMove - 1]?.san || '';
     const moveNumber = Math.floor((currentMove - 1) / 2) + 1;
     const isWhiteMove = (currentMove - 1) % 2 === 0;
     const fullMoveText = `${moveNumber}${isWhiteMove ? '.' : '...'} ${moveText}`;
-    
+
     return {
       quality,
-      colorClass: MOVE_QUALITY[quality]?.color || '',
-      label: MOVE_QUALITY[quality]?.label || '',
-      text: fullMoveText
+      bgColor: qualityInfo?.bgColor || '#e5e7eb',
+      textColor: qualityInfo?.color === 'text-black' ? '#000' : '#fff',
+      label: qualityInfo?.label || '',
+      text: fullMoveText,
+      comment: moveAnalysis.comment || '',
+      eval: moveAnalysis.eval
     };
   };
 
@@ -317,11 +323,15 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
               <div className="text-gray-400 text-center">No analysis available.</div>
             ) : (
               <>
-                <div className="flex justify-between mb-2 w-full">
-                  <span className="text-gray-400">White</span>
-                  <span className="text-gray-400">Black</span>
+                <div className="flex items-center gap-2 py-1 w-full mb-2">
+                  <div className="w-5 h-5"></div>
+                  <span className="text-lg flex-1"></span>
+                  <span className="flex gap-4">
+                    <span className="w-12 text-center text-gray-400">White</span>
+                    <span className="w-12 text-center text-gray-400">Black</span>
+                  </span>
                 </div>
-                {['brilliant','great','best','good','inaccuracy','mistake','blunder'].map(quality => {
+                {['brilliant','great','best','good','book','inaccuracy','mistake','blunder','forced'].map(quality => {
                   // Count moves by quality and side
                   const counts = {white: 0, black: 0};
                   analysis.forEach((item, idx) => {
@@ -332,14 +342,14 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
                   });
                   const total = counts.white + counts.black;
                   if (total === 0) return null;
-                  const bgColorClass = MOVE_QUALITY[quality]?.color.split(' ')[0] || '';
+                  const qualityInfo = MOVE_QUALITY[quality];
                   return (
                     <div className="flex items-center gap-2 py-1 w-full" key={quality}>
-                      <div className={`w-5 h-5 ${bgColorClass} rounded`}></div>
-                      <span className="text-lg">{quality}</span>
-                      <span className="ml-auto flex gap-4">
-                        <span>{counts.white}</span>
-                        <span>{counts.black}</span>
+                      <div className="w-5 h-5 rounded" style={{ backgroundColor: qualityInfo?.bgColor }}></div>
+                      <span className="text-lg capitalize flex-1">{quality}</span>
+                      <span className="flex gap-4">
+                        <span className="w-12 text-center">{counts.white}</span>
+                        <span className="w-12 text-center">{counts.black}</span>
                       </span>
                     </div>
                   );
@@ -377,10 +387,25 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
             </div>
           )}
           
-          {/* Current move quality indicator */}
+          {/* Current move quality indicator with comment */}
           {currentMoveInfo() && (
-            <div className={`mb-2 py-1 px-3 rounded-t-lg inline-block ${currentMoveInfo().colorClass}`}>
-              {currentMoveInfo().label}: {currentMoveInfo().text}
+            <div className="mb-2">
+              <div
+                className="py-1 px-3 rounded-t-lg inline-block"
+                style={{ backgroundColor: currentMoveInfo().bgColor, color: currentMoveInfo().textColor }}
+              >
+                {currentMoveInfo().label}: {currentMoveInfo().text}
+                {currentMoveInfo().eval && (
+                  <span className="ml-2 opacity-80">
+                    (Eval: {currentMoveInfo().eval > 0 ? '+' : ''}{currentMoveInfo().eval})
+                  </span>
+                )}
+              </div>
+              {currentMoveInfo().comment && (
+                <div className="mt-1 p-2 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-700 dark:text-gray-300">
+                  {currentMoveInfo().comment}
+                </div>
+              )}
             </div>
           )}
           
@@ -452,7 +477,8 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, playerColor }) => {
                 return (
                   <button
                     key={idx}
-                    className={`${getMoveStyle(idx)} px-2 py-1 rounded text-xs font-medium`}
+                    className="px-2 py-1 rounded text-xs font-medium"
+                    style={getMoveStyle(idx)}
                     onClick={() => goToMove(idx + 1)}
                   >
                     {prefix}{move.san}
