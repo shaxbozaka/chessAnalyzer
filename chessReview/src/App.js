@@ -14,7 +14,7 @@ function App() {
               <div className="max-w-4xl mx-auto px-4">
                 <header className="mb-8 text-center">
                   <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Chess.com Game Review</h1>
-                  <p className="text-gray-600 dark:text-gray-400 mt-2">Analyze your recent games from Chess.com</p>
+                  <p className="text-gray-600 dark:text-gray-400 mt-2">Review your recent games with Stockfish-powered move grading</p>
                 </header>
                 
                 <ChessGames />

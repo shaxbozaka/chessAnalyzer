@@ -561,68 +561,70 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
   };
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
       {error && (
-        <div className="absolute top-4 left-4 right-4 p-2 bg-red-900/80 text-red-200 rounded text-sm">
+        <div className="rounded-lg border border-red-900/70 bg-red-950/70 p-3 text-sm text-red-200">
           {error}
         </div>
       )}
 
       {/* Board Section */}
-      <div className="flex-shrink-0">
-        <div ref={boardRef} style={{ width: 480, position: 'relative' }}>
-          <Chessboard
-            id="board"
-            position={exploreMode && exploreChess ? exploreChess.fen() : position}
-            boardWidth={480}
-            arePiecesDraggable={exploreMode}
-            onPieceDrop={onPieceDrop}
-            animationDuration={150}
-            customSquareStyles={exploreMode ? {} : getHighlight()}
-            customArrows={getBestMoveArrow()}
-            boardOrientation={playerColor === 'black' ? 'black' : 'white'}
-            customDarkSquareStyle={{ backgroundColor: '#779556' }}
-            customLightSquareStyle={{ backgroundColor: '#ebecd0' }}
-          />
-          {/* Move Quality Icon Overlay on Board */}
-          {!exploreMode && currentMove > 0 && analysis[currentMove - 1] && (() => {
-            const q = analysis[currentMove - 1]?.label;
-            if (!q || !BOARD_HIGHLIGHT_QUALITIES.includes(q)) return null;
-            const sq = moves[currentMove - 1]?.to;
-            if (!sq) return null;
+      <div className="w-full xl:w-auto">
+        <div className="rounded-lg border border-neutral-700/70 bg-[#242424] p-3 shadow-xl shadow-black/20">
+          <div ref={boardRef} className="mx-auto overflow-hidden rounded-md" style={{ width: 480, position: 'relative' }}>
+            <Chessboard
+              id="board"
+              position={exploreMode && exploreChess ? exploreChess.fen() : position}
+              boardWidth={480}
+              arePiecesDraggable={exploreMode}
+              onPieceDrop={onPieceDrop}
+              animationDuration={150}
+              customSquareStyles={exploreMode ? {} : getHighlight()}
+              customArrows={getBestMoveArrow()}
+              boardOrientation={playerColor === 'black' ? 'black' : 'white'}
+              customDarkSquareStyle={{ backgroundColor: '#779556' }}
+              customLightSquareStyle={{ backgroundColor: '#ebecd0' }}
+            />
+            {/* Move Quality Icon Overlay on Board */}
+            {!exploreMode && currentMove > 0 && analysis[currentMove - 1] && (() => {
+              const q = analysis[currentMove - 1]?.label;
+              if (!q || !BOARD_HIGHLIGHT_QUALITIES.includes(q)) return null;
+              const sq = moves[currentMove - 1]?.to;
+              if (!sq) return null;
 
-            // Calculate position based on square
-            const file = sq.charCodeAt(0) - 'a'.charCodeAt(0); // 0-7 for a-h
-            const rank = parseInt(sq[1]) - 1; // 0-7 for 1-8
-            const squareSize = 480 / 8;
+              // Calculate position based on square
+              const file = sq.charCodeAt(0) - 'a'.charCodeAt(0); // 0-7 for a-h
+              const rank = parseInt(sq[1]) - 1; // 0-7 for 1-8
+              const squareSize = 480 / 8;
 
-            // Adjust for board orientation
-            const isFlipped = playerColor === 'black';
-            const x = isFlipped ? (7 - file) * squareSize : file * squareSize;
-            const y = isFlipped ? rank * squareSize : (7 - rank) * squareSize;
+              // Adjust for board orientation
+              const isFlipped = playerColor === 'black';
+              const x = isFlipped ? (7 - file) * squareSize : file * squareSize;
+              const y = isFlipped ? rank * squareSize : (7 - rank) * squareSize;
 
-            return (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: x + squareSize - 16,
-                  top: y - 8,
-                  zIndex: 10,
-                  pointerEvents: 'none',
-                }}
-              >
-                <QualityIcon quality={q} size={24} />
-              </div>
-            );
-          })()}
-        </div>
+              return (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: x + squareSize - 16,
+                    top: y - 8,
+                    zIndex: 10,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <QualityIcon quality={q} size={24} />
+                </div>
+              );
+            })()}
+          </div>
 
-        {/* Controls */}
-        <div className="flex items-center justify-center gap-1 mt-2">
-          <button onClick={() => goToMove(0)} className="px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded text-white text-sm">⟨⟨</button>
-          <button onClick={() => goToMove(currentMove - 1)} disabled={currentMove === 0} className="px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded text-white text-sm disabled:opacity-40">⟨</button>
-          <button onClick={() => goToMove(currentMove + 1)} disabled={currentMove >= moves.length} className="px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded text-white text-sm disabled:opacity-40">⟩</button>
-          <button onClick={() => goToMove(moves.length)} className="px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded text-white text-sm">⟩⟩</button>
+          {/* Controls */}
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <button onClick={() => goToMove(0)} className="h-10 w-11 rounded bg-neutral-700 text-sm text-white hover:bg-neutral-600">⟨⟨</button>
+            <button onClick={() => goToMove(currentMove - 1)} disabled={currentMove === 0} className="h-10 w-11 rounded bg-neutral-700 text-sm text-white hover:bg-neutral-600 disabled:opacity-40">⟨</button>
+            <button onClick={() => goToMove(currentMove + 1)} disabled={currentMove >= moves.length} className="h-10 w-11 rounded bg-neutral-700 text-sm text-white hover:bg-neutral-600 disabled:opacity-40">⟩</button>
+            <button onClick={() => goToMove(moves.length)} className="h-10 w-11 rounded bg-neutral-700 text-sm text-white hover:bg-neutral-600">⟩⟩</button>
+          </div>
         </div>
 
         {/* Comment Panel - Chess.com style */}
@@ -752,10 +754,16 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
       </div>
 
       {/* Move List */}
-      <div className="flex-1 min-w-0">
-
-        <div ref={moveListRef} className="bg-neutral-800 rounded overflow-hidden" style={{ maxHeight: 540 }}>
-          <div className="overflow-y-auto p-2" style={{ maxHeight: 540 }}>
+      <div className="min-w-0 flex-1">
+        <div ref={moveListRef} className="overflow-hidden rounded-lg border border-neutral-700/70 bg-[#242424] shadow-xl shadow-black/20">
+          <div className="flex items-center justify-between border-b border-neutral-700/70 bg-neutral-800 px-4 py-3">
+            <div>
+              <div className="text-sm font-semibold text-neutral-100">Moves</div>
+              <div className="text-xs text-neutral-500">{moves.length} plies</div>
+            </div>
+            {loading && <span className="text-xs text-blue-300">Analyzing...</span>}
+          </div>
+          <div className="overflow-y-auto p-3" style={{ maxHeight: 560 }}>
             {Array.from({ length: Math.ceil(moves.length / 2) }).map((_, i) => {
               const wIdx = i * 2;
               const bIdx = i * 2 + 1;
@@ -769,11 +777,11 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
               const bActive = currentMove === bIdx + 1;
 
               return (
-                <div key={i} className="flex items-center text-sm py-0.5">
-                  <span className="w-7 text-neutral-500 text-right pr-2 flex-shrink-0">{i + 1}.</span>
+                <div key={i} className="flex items-center rounded text-sm">
+                  <span className="w-8 flex-shrink-0 pr-2 text-right text-neutral-500">{i + 1}.</span>
                   <button
                     onClick={() => goToMove(wIdx + 1)}
-                    className={`flex-1 text-left px-2 py-0.5 rounded mr-1 transition-colors ${wActive ? 'bg-neutral-600' : 'hover:bg-neutral-700'}`}
+                    className={`move-notation mr-1 flex-1 rounded px-2 py-1.5 text-left transition-colors ${wActive ? 'bg-neutral-600 text-white' : 'hover:bg-neutral-700'}`}
                     style={wHighlight ? { color: QUALITY_COLORS[wQ] } : { color: '#e5e5e5' }}
                   >
                     {wMove?.san}
@@ -782,7 +790,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
                   {bMove ? (
                     <button
                       onClick={() => goToMove(bIdx + 1)}
-                      className={`flex-1 text-left px-2 py-0.5 rounded transition-colors ${bActive ? 'bg-neutral-600' : 'hover:bg-neutral-700'}`}
+                      className={`move-notation flex-1 rounded px-2 py-1.5 text-left transition-colors ${bActive ? 'bg-neutral-600 text-white' : 'hover:bg-neutral-700'}`}
                       style={bHighlight ? { color: QUALITY_COLORS[bQ] } : { color: '#e5e5e5' }}
                     >
                       {bMove.san}

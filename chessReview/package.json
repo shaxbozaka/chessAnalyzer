@@ -1,5 +1,5 @@
 {
-  "name": "ai-chess-coach",
+  "name": "chess-game-review",
   "version": "0.1.0",
   "private": true,
   "proxy": "http://127.0.0.1:8080",
@@ -8,9 +8,7 @@
     "react": "^18.3.1",
     "react-chessboard": "^4.7.3",
     "react-dom": "^18.3.1",
-    "react-markdown": "^10.1.0",
-    "react-router-dom": "^6.30.3",
-    "remark-gfm": "^4.0.1"
+    "react-router-dom": "^6.30.3"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",

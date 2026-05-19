@@ -6,16 +6,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Clean install dependencies and explicitly install react-scripts
-RUN npm install
-RUN npm install react-scripts@5.0.1 --save
+# Install exactly what is recorded in package-lock.json.
+RUN npm ci
 
 # Copy the application code
 COPY . .
 
-# Create a production build with direct call to build.js
-RUN mkdir -p build && \
-    NODE_ENV=production node ./node_modules/react-scripts/scripts/build.js
+# Create a production build
+RUN npm run build
 
 # Production stage
 FROM nginx:stable-alpine

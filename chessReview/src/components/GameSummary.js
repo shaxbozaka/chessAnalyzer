@@ -1,7 +1,4 @@
-import React, { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import getGameReview from '../utils/gameReview';
+import React from 'react';
 
 // Performance rating icon component
 const PerformanceIcon = ({ rating }) => {
@@ -98,27 +95,8 @@ const calculatePhasePerformance = (analysis, isWhite, startPly, endPly) => {
   return 'excellent';                         // Clean play
 };
 
-const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, white, black }) => {
-  const [review, setReview] = useState('');
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewError, setReviewError] = useState('');
-
+const GameSummary = ({ analysis, whiteAccuracy, blackAccuracy, white, black }) => {
   if (!analysis || analysis.length === 0) return null;
-
-  const handleGenerateReview = async () => {
-    if (!pgn || reviewLoading) return;
-
-    setReviewLoading(true);
-    setReviewError('');
-    try {
-      const text = await getGameReview({ pgn, username, analysis });
-      setReview(text);
-    } catch (err) {
-      setReviewError(err.message);
-    } finally {
-      setReviewLoading(false);
-    }
-  };
 
   // Define game phases (approximate move numbers)
   // Opening: first 10 moves (20 plies)
@@ -141,28 +119,28 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
   const blackRating = calculateGameRating(blackAccuracy);
 
   return (
-    <div className="bg-neutral-800 rounded-lg overflow-hidden" style={{ minWidth: 280 }}>
+    <div className="w-full overflow-hidden rounded-lg border border-neutral-700/70 bg-[#242424] shadow-xl shadow-black/20 xl:w-[320px]">
       {/* Header */}
-      <div className="bg-neutral-700 px-4 py-2">
-        <h3 className="text-white font-semibold text-sm">Game Summary</h3>
+      <div className="border-b border-neutral-700/70 bg-neutral-800 px-5 py-4">
+        <h3 className="text-xl font-semibold text-white">Game Summary</h3>
       </div>
 
       {/* Summary Table */}
-      <div className="p-3">
+      <div className="p-5">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-neutral-400">
               <th className="text-left font-normal pb-2"></th>
-              <th className="text-center font-normal pb-2 w-20">
+              <th className="text-center font-normal pb-3 w-24">
                 <div className="flex items-center justify-center gap-1">
                   <div className="w-3 h-3 bg-white rounded-sm" />
-                  <span className="text-xs truncate max-w-[60px]">{white || 'White'}</span>
+                  <span className="text-xs truncate max-w-[72px]">{white || 'White'}</span>
                 </div>
               </th>
-              <th className="text-center font-normal pb-2 w-20">
+              <th className="text-center font-normal pb-3 w-24">
                 <div className="flex items-center justify-center gap-1">
                   <div className="w-3 h-3 bg-neutral-900 rounded-sm border border-neutral-600" />
-                  <span className="text-xs truncate max-w-[60px]">{black || 'Black'}</span>
+                  <span className="text-xs truncate max-w-[72px]">{black || 'Black'}</span>
                 </div>
               </th>
             </tr>
@@ -170,18 +148,18 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
           <tbody className="text-neutral-200">
             {/* Game Rating Row */}
             <tr className="border-t border-neutral-700">
-              <td className="py-2 text-neutral-400">Game Rating</td>
+              <td className="py-3 text-neutral-400">Game Rating</td>
               <td className="py-2 text-center">
-                <span className="font-bold text-lg text-green-400">{whiteRating || '-'}</span>
+                <span className="text-xl font-bold text-green-400">{whiteRating || '-'}</span>
               </td>
               <td className="py-2 text-center">
-                <span className="font-bold text-lg text-green-400">{blackRating || '-'}</span>
+                <span className="text-xl font-bold text-green-400">{blackRating || '-'}</span>
               </td>
             </tr>
 
             {/* Accuracy Row */}
             <tr className="border-t border-neutral-700">
-              <td className="py-2 text-neutral-400">Accuracy</td>
+              <td className="py-3 text-neutral-400">Accuracy</td>
               <td className="py-2 text-center">
                 <span className="font-medium text-green-400">{whiteAccuracy || '-'}%</span>
               </td>
@@ -192,7 +170,7 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
 
             {/* Opening Row */}
             <tr className="border-t border-neutral-700">
-              <td className="py-2 text-neutral-400">Opening</td>
+              <td className="py-3 text-neutral-400">Opening</td>
               <td className="py-2 text-center">
                 {whiteOpening && <PerformanceIcon rating={whiteOpening} />}
               </td>
@@ -203,7 +181,7 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
 
             {/* Middlegame Row */}
             <tr className="border-t border-neutral-700">
-              <td className="py-2 text-neutral-400">Middlegame</td>
+              <td className="py-3 text-neutral-400">Middlegame</td>
               <td className="py-2 text-center">
                 {whiteMiddlegame && <PerformanceIcon rating={whiteMiddlegame} />}
               </td>
@@ -215,7 +193,7 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
             {/* Endgame Row */}
             {(whiteEndgame || blackEndgame) && (
               <tr className="border-t border-neutral-700">
-                <td className="py-2 text-neutral-400">Endgame</td>
+                <td className="py-3 text-neutral-400">Endgame</td>
                 <td className="py-2 text-center">
                   {whiteEndgame && <PerformanceIcon rating={whiteEndgame} />}
                 </td>
@@ -228,54 +206,20 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
         </table>
 
         {/* Move Quality Stats */}
-        <div className="mt-4 pt-3 border-t border-neutral-700">
+        <div className="mt-4 border-t border-neutral-700 pt-4">
           <div className="grid grid-cols-2 gap-4 text-xs">
             {/* White Stats */}
             <div>
-              <div className="text-neutral-400 mb-2">White Moves</div>
+              <div className="mb-2 font-medium text-neutral-400">White Moves</div>
               <MoveQualityStats analysis={analysis} isWhite={true} />
             </div>
 
             {/* Black Stats */}
             <div>
-              <div className="text-neutral-400 mb-2">Black Moves</div>
+              <div className="mb-2 font-medium text-neutral-400">Black Moves</div>
               <MoveQualityStats analysis={analysis} isWhite={false} />
             </div>
           </div>
-        </div>
-
-        {/* AI review */}
-        <div className="mt-4 pt-3 border-t border-neutral-700">
-          <button
-            type="button"
-            onClick={handleGenerateReview}
-            disabled={reviewLoading || !pgn}
-            className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 rounded text-white text-sm font-medium transition-colors"
-          >
-            {reviewLoading ? 'Generating...' : review ? 'Refresh Review' : 'AI Review'}
-          </button>
-          {reviewError && (
-            <div className="mt-2 text-xs text-red-300">{reviewError}</div>
-          )}
-          {review && (
-            <div className="mt-3 max-h-80 overflow-y-auto text-xs text-neutral-200 leading-relaxed space-y-2">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  h1: ({ children }) => <h4 className="text-sm font-semibold text-white mt-2">{children}</h4>,
-                  h2: ({ children }) => <h5 className="text-xs font-semibold text-neutral-100 mt-3">{children}</h5>,
-                  p: ({ children }) => <p className="text-neutral-200">{children}</p>,
-                  ul: ({ children }) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
-                  li: ({ children }) => <li className="text-neutral-200">{children}</li>,
-                  blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-500 pl-2 text-neutral-300">{children}</blockquote>,
-                  strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>
-                }}
-              >
-                {review}
-              </ReactMarkdown>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -320,11 +264,11 @@ const MoveQualityStats = ({ analysis, isWhite }) => {
   };
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {Object.entries(stats).map(([quality, count]) => (
         count > 0 && (
           <div key={quality} className="flex items-center justify-between">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <div
                 className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: colors[quality] }}

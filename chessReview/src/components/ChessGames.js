@@ -1,6 +1,9 @@
 import React, { useState, useEffect, Fragment, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+const USERNAME_STORAGE_KEY = 'chess-game-review-username';
+const LEGACY_USERNAME_STORAGE_KEY = 'ai-chess-coach-username';
+
 const ChessGames = () => {
   const [username, setUsername] = useState('');
   const [games, setGames] = useState([]);
@@ -84,7 +87,8 @@ const ChessGames = () => {
         if (archiveGames.length > 0) {
           setGames(archiveGames);
           setCurrentArchiveIndex(index);
-          localStorage.setItem('ai-chess-coach-username', userToFetch);
+          localStorage.setItem(USERNAME_STORAGE_KEY, userToFetch);
+          localStorage.removeItem(LEGACY_USERNAME_STORAGE_KEY);
           return;
         }
       }
@@ -142,7 +146,7 @@ const ChessGames = () => {
 
   // Load saved username and fetch games on component mount
   useEffect(() => {
-    const savedUsername = localStorage.getItem('ai-chess-coach-username');
+    const savedUsername = localStorage.getItem(USERNAME_STORAGE_KEY) || localStorage.getItem(LEGACY_USERNAME_STORAGE_KEY);
     if (savedUsername) {
       setUsername(savedUsername);
       fetchGames(savedUsername);
