@@ -111,7 +111,7 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
     setReviewLoading(true);
     setReviewError('');
     try {
-      const text = await getGameReview({ pgn, username });
+      const text = await getGameReview({ pgn, username, analysis });
       setReview(text);
     } catch (err) {
       setReviewError(err.message);

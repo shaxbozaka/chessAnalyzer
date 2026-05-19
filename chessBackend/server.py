@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
-from typing import List, Optional
+from typing import Any, List, Optional
 
 # Import local module with a renamed import to avoid confusion
 import chess_analyzer
@@ -65,6 +65,15 @@ class MoveRequest(StrictRequest):
 class ReviewRequest(StrictRequest):
     pgn: str = Field(..., min_length=1, max_length=MAX_PGN_CHARS)
     username: Optional[str] = None
+    analysis: Optional[List[dict[str, Any]]] = None
+
+
+class EngineMove(BaseModel):
+    move: str
+    move_uci: str
+    eval: Optional[float] = None
+    eval_cp: Optional[int] = None
+
 
 class MoveAnalysis(BaseModel):
     ply: int
@@ -76,6 +85,8 @@ class MoveAnalysis(BaseModel):
     eval_before: Optional[float] = None  # Eval before move (for win probability calculation)
     best_move: Optional[str] = None
     cp_loss: Optional[int] = None  # Centipawn loss for accuracy calculation
+    expected_loss: Optional[float] = None
+    top_moves: Optional[List[EngineMove]] = None
 
 class AnalysisResponse(BaseModel):
     moves: List[MoveAnalysis]
@@ -85,6 +96,7 @@ class PositionResponse(BaseModel):
     eval: Optional[float] = None
     best_move: Optional[str] = None
     best_move_uci: Optional[str] = None
+    top_moves: Optional[List[EngineMove]] = None
 
 class ReviewResponse(BaseModel):
     summary: str
@@ -157,7 +169,8 @@ async def review_chess_game(request: ReviewRequest):
         review_result = await run_in_threadpool(
             gpt_review.get_openai_review,
             request.pgn,
-            request.username
+            request.username,
+            request.analysis
         )
         
         return review_result

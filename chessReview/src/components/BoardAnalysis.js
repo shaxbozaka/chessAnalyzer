@@ -157,6 +157,12 @@ export const calculateAccuracy = (analysis, isWhite) => {
     // Skip book moves - they're theory, not player decisions
     if (quality === 'book') return;
 
+    const expectedLoss = move.expectedLoss ?? move.expected_loss;
+    if (expectedLoss !== null && expectedLoss !== undefined) {
+      moveAccuracies.push(winProbToMoveAccuracy(expectedLoss));
+      return;
+    }
+
     // Get evaluations in pawns (eval is already in pawns from backend)
     const evalBefore = move.evalBefore ?? move.eval_before;
     const evalAfter = move.eval ?? move.evaluation;
@@ -290,9 +296,12 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
               bestMove: item.best_move || null,
               eval: item.eval ?? null,  // Keep as number for accuracy calc
               evalBefore: item.eval_before ?? null,  // For win probability calculation
+              expectedLoss: item.expected_loss ?? null,
               label: item.quality?.toLowerCase() || 'good',
+              quality: item.quality?.toLowerCase() || 'good',
               comment: item.comment || '',
-              cpLoss: item.cp_loss ?? null
+              cpLoss: item.cp_loss ?? null,
+              topMoves: item.top_moves || []
             };
           });
           setAnalysis(analysisData);
@@ -374,6 +383,8 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
             comment: data.comment,
             eval: data.eval,
             bestMove: data.best_move,
+            expectedLoss: data.expected_loss,
+            topMoves: data.top_moves || [],
             isWhite: isWhiteTurn
           });
         }
@@ -482,7 +493,9 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
       moveText: `${moveNum}${isWhite ? '.' : '...'} ${moves[currentMove - 1]?.san}`,
       comment: a.comment,
       eval: a.eval,
-      bestMove: a.bestMove
+      expectedLoss: a.expectedLoss,
+      bestMove: a.bestMove,
+      topMoves: a.topMoves || []
     };
   })() : null;
 
@@ -620,6 +633,19 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
             <div className="bg-neutral-800 px-4 py-3">
               {info.comment && (
                 <p className="text-neutral-200 text-sm leading-relaxed">{info.comment}</p>
+              )}
+              {info.topMoves.length > 0 && (
+                <div className="mt-3 text-xs text-neutral-400">
+                  <div className="uppercase tracking-wide text-neutral-500 mb-1">Engine lines</div>
+                  {info.topMoves.slice(0, 3).map((line, idx) => (
+                    <div key={`${line.move_uci || line.move}-${idx}`} className="flex justify-between gap-3">
+                      <span>{idx + 1}. {line.move}</span>
+                      {line.eval !== null && line.eval !== undefined && (
+                        <span className="text-neutral-300">{line.eval > 0 ? '+' : ''}{line.eval}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
               {info.bestMove && (
                 <div className="flex gap-2 mt-3">

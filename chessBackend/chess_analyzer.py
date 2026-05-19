@@ -5,6 +5,7 @@ import chess.polyglot  # Added for opening book support
 from io import StringIO
 import os
 import concurrent.futures
+import math
 
 
 DEFAULT_STOCKFISH_PATH = "/usr/games/stockfish"
@@ -13,6 +14,7 @@ DEFAULT_ANALYSIS_DEPTH = 14
 DEFAULT_ANALYSIS_WORKERS = 2
 DEFAULT_MAX_ANALYSIS_PLIES = 300
 DEFAULT_SECONDS_PER_POSITION = 5.0
+DEFAULT_MULTIPV = 3
 
 
 class AnalysisInputError(ValueError):
@@ -65,6 +67,41 @@ def _seconds_per_position():
     return _env_float("ANALYSIS_SECONDS_PER_POSITION", DEFAULT_SECONDS_PER_POSITION)
 
 
+def _multipv():
+    return _env_int("ANALYSIS_MULTIPV", DEFAULT_MULTIPV)
+
+
+def _score_to_cp(score):
+    return score.white().score(mate_score=10000)
+
+
+def _white_expected_score(eval_cp):
+    if eval_cp is None:
+        return None
+
+    cp = max(-1000, min(1000, eval_cp))
+    return 1 / (1 + math.exp(-0.004 * cp))
+
+
+def _side_expected_score(eval_cp, side):
+    white_score = _white_expected_score(eval_cp)
+    if white_score is None:
+        return None
+    return white_score if side == chess.WHITE else 1 - white_score
+
+
+def _expected_loss(eval_before, eval_after, side):
+    before = _side_expected_score(eval_before, side)
+    after = _side_expected_score(eval_after, side)
+    if before is None or after is None:
+        return None
+    return max(0, before - after)
+
+
+def _move_from_uci(move_uci):
+    return chess.Move.from_uci(move_uci) if move_uci else None
+
+
 # Function to check if a move is in the opening book
 def is_book_move(board, book_path, cache=None):
     if not book_path:
@@ -92,7 +129,7 @@ def is_book_move(board, book_path, cache=None):
         return False
 
 
-def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_sacrifice, played_eval, best_eval, is_checkmate=False, best_move_san=None, is_competitive=True, move_problem=None, is_miss=False):
+def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_sacrifice, played_eval, best_eval, is_checkmate=False, best_move_san=None, is_competitive=True, move_problem=None, is_miss=False, expected_loss=None, top_move_rank=None):
     """
     Chess.com-style move quality classification with commentary.
 
@@ -128,9 +165,14 @@ def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_s
     # - Blunder: game-changing error (201+ cp loss)
     # - Miss: missed a winning tactic (special - doesn't lose material but misses a win)
 
+    expected_loss_pct = expected_loss * 100 if expected_loss is not None else None
+
     # Check for "Miss" first - this is when you miss a winning tactic
     # A miss is when: you could have won material/game but played a safe move instead
-    if is_miss and abs_delta >= 50 and abs_delta < 200:
+    if is_miss and (
+        (expected_loss_pct is not None and 4 <= expected_loss_pct < 18)
+        or (expected_loss_pct is None and abs_delta >= 50 and abs_delta < 200)
+    ):
         quality = "miss"
         if best_move_san:
             comment = f"Missed a winning move! {best_move_san} would have given a decisive advantage."
@@ -138,56 +180,104 @@ def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_s
             comment = "Missed a winning continuation that would have given a decisive advantage."
         return quality, comment
 
-    if abs_delta <= 0:
-        quality = "best"
-        comment = "This is the engine's top choice."
-    elif abs_delta <= 10:
-        quality = "excellent"
-        comment = "An excellent move - nearly as good as the best."
-    elif abs_delta <= 30:
-        quality = "good"
-        comment = "A reasonable move that keeps the position solid."
-    elif abs_delta <= 80:
-        quality = "inaccuracy"
-        # Use problem description if available
-        if move_problem and move_problem.get("description"):
-            comment = move_problem["description"]
-            if best_move_san:
-                comment += f" {best_move_san} was more accurate."
-        elif best_move_san:
-            comment = f"A small slip. {best_move_san} was more accurate."
-        else:
-            comment = "A small slip - there was a more precise continuation."
-    elif abs_delta <= 200:
-        quality = "mistake"
-        # Use problem description if available
-        if move_problem and move_problem.get("description"):
-            comment = move_problem["description"]
-            if best_move_san:
-                comment += f" {best_move_san} was better."
-        elif best_move_san:
-            comment = f"This gives away some advantage. {best_move_san} was much better."
-        else:
-            comment = "This gives away significant advantage. A better move was available."
-    else:
-        quality = "blunder"
-        # Use problem description first - this explains WHY the move is bad
-        if move_problem and move_problem.get("description"):
-            comment = move_problem["description"]
-            if best_move_san:
-                comment += f" {best_move_san} was necessary."
-        elif played_eval is not None:
-            # Check if it's a game-losing blunder
-            if side_to_move == chess.WHITE and played_eval < -500:
-                comment = "A critical error that likely loses the game."
-            elif side_to_move == chess.BLACK and played_eval > 500:
-                comment = "A critical error that likely loses the game."
+    if expected_loss_pct is not None:
+        if top_move_rank == 1 or expected_loss_pct <= 0.3:
+            quality = "best"
+            comment = "This is the engine's top choice."
+        elif expected_loss_pct <= 1.5 or (top_move_rank is not None and expected_loss_pct <= 2.5):
+            quality = "excellent"
+            comment = "An excellent move - nearly as good as the best."
+        elif expected_loss_pct <= 4:
+            quality = "good"
+            comment = "A reasonable move that keeps the position solid."
+        elif expected_loss_pct <= 8:
+            quality = "inaccuracy"
+            if move_problem and move_problem.get("description"):
+                comment = move_problem["description"]
+                if best_move_san:
+                    comment += f" {best_move_san} was more accurate."
             elif best_move_san:
-                comment = f"A serious mistake. {best_move_san} was necessary to stay in the game."
+                comment = f"A small slip. {best_move_san} was more accurate."
+            else:
+                comment = "A small slip - there was a more precise continuation."
+        elif expected_loss_pct <= 18:
+            quality = "mistake"
+            if move_problem and move_problem.get("description"):
+                comment = move_problem["description"]
+                if best_move_san:
+                    comment += f" {best_move_san} was better."
+            elif best_move_san:
+                comment = f"This gives away some advantage. {best_move_san} was much better."
+            else:
+                comment = "This gives away significant advantage. A better move was available."
+        else:
+            quality = "blunder"
+            if move_problem and move_problem.get("description"):
+                comment = move_problem["description"]
+                if best_move_san:
+                    comment += f" {best_move_san} was necessary."
+            elif played_eval is not None:
+                if side_to_move == chess.WHITE and played_eval < -500:
+                    comment = "A critical error that likely loses the game."
+                elif side_to_move == chess.BLACK and played_eval > 500:
+                    comment = "A critical error that likely loses the game."
+                elif best_move_san:
+                    comment = f"A serious mistake. {best_move_san} was necessary to stay in the game."
+                else:
+                    comment = "A serious mistake that dramatically worsens the position."
             else:
                 comment = "A serious mistake that dramatically worsens the position."
+    else:
+        if abs_delta <= 0:
+            quality = "best"
+            comment = "This is the engine's top choice."
+        elif abs_delta <= 10:
+            quality = "excellent"
+            comment = "An excellent move - nearly as good as the best."
+        elif abs_delta <= 30:
+            quality = "good"
+            comment = "A reasonable move that keeps the position solid."
+        elif abs_delta <= 80:
+            quality = "inaccuracy"
+            # Use problem description if available
+            if move_problem and move_problem.get("description"):
+                comment = move_problem["description"]
+                if best_move_san:
+                    comment += f" {best_move_san} was more accurate."
+            elif best_move_san:
+                comment = f"A small slip. {best_move_san} was more accurate."
+            else:
+                comment = "A small slip - there was a more precise continuation."
+        elif abs_delta <= 200:
+            quality = "mistake"
+            # Use problem description if available
+            if move_problem and move_problem.get("description"):
+                comment = move_problem["description"]
+                if best_move_san:
+                    comment += f" {best_move_san} was better."
+            elif best_move_san:
+                comment = f"This gives away some advantage. {best_move_san} was much better."
+            else:
+                comment = "This gives away significant advantage. A better move was available."
         else:
-            comment = "A serious mistake that dramatically worsens the position."
+            quality = "blunder"
+            # Use problem description first - this explains WHY the move is bad
+            if move_problem and move_problem.get("description"):
+                comment = move_problem["description"]
+                if best_move_san:
+                    comment += f" {best_move_san} was necessary."
+            elif played_eval is not None:
+                # Check if it's a game-losing blunder
+                if side_to_move == chess.WHITE and played_eval < -500:
+                    comment = "A critical error that likely loses the game."
+                elif side_to_move == chess.BLACK and played_eval > 500:
+                    comment = "A critical error that likely loses the game."
+                elif best_move_san:
+                    comment = f"A serious mistake. {best_move_san} was necessary to stay in the game."
+                else:
+                    comment = "A serious mistake that dramatically worsens the position."
+            else:
+                comment = "A serious mistake that dramatically worsens the position."
 
     # Chess.com-style brilliant move detection
     # Based on: https://support.chess.com/en/articles/8572705-how-are-moves-classified
@@ -219,12 +309,13 @@ def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_s
 # Worker function for parallel evaluation
 def evaluate_position(position_data):
     """Evaluate a single position using Stockfish and get best move"""
-    fen, stockfish_path, depth, time_limit = position_data
+    fen, stockfish_path, depth, time_limit, multipv = position_data
     position = chess.Board(fen)
 
     # Evaluate the position and get best move
     eval_score = None
     best_move = None
+    top_moves = []
     engine = None
     try:
         # Create a new engine instance for this process
@@ -236,18 +327,38 @@ def evaluate_position(position_data):
             "Hash": 64,
         })
 
-        info = engine.analyse(position, chess.engine.Limit(depth=depth, time=time_limit))
-        eval_score = info["score"].white().score(mate_score=10000)
-        # Get the best move (PV = principal variation)
-        if "pv" in info and len(info["pv"]) > 0:
-            best_move = info["pv"][0]
+        raw_info = engine.analyse(
+            position,
+            chess.engine.Limit(depth=depth, time=time_limit),
+            multipv=multipv
+        )
+        info_items = raw_info if isinstance(raw_info, list) else [raw_info]
+        info_items.sort(key=lambda item: item.get("multipv", 1))
+
+        for info in info_items:
+            pv = info.get("pv", [])
+            if not pv:
+                continue
+
+            move = pv[0]
+            score = _score_to_cp(info["score"])
+            top_moves.append({
+                "move": position.san(move),
+                "move_uci": move.uci(),
+                "eval": score / 100 if score is not None else None,
+                "eval_cp": score
+            })
+
+        if top_moves:
+            eval_score = top_moves[0]["eval_cp"]
+            best_move = top_moves[0]["move_uci"]
     except Exception as e:
         print(f"Error evaluating position: {e}")
     finally:
         if engine is not None:
             engine.quit()
 
-    return fen, eval_score, best_move
+    return fen, eval_score, best_move, top_moves
 
 
 PIECE_VALUES = {
@@ -611,12 +722,11 @@ def analyze_position(fen, stockfish_path=None):
         raise AnalysisInputError("Invalid FEN position.") from exc
 
     stockfish_path = _resolve_stockfish_path(stockfish_path)
-    eval_score, best_move = _evaluate_board(board, stockfish_path)
+    eval_score, best_move_uci, top_moves = _evaluate_board(board, stockfish_path)
 
     best_move_san = None
-    best_move_uci = None
-    if best_move is not None:
-        best_move_uci = best_move.uci()
+    if best_move_uci is not None:
+        best_move = _move_from_uci(best_move_uci)
         try:
             best_move_san = board.san(best_move)
         except ValueError:
@@ -626,15 +736,16 @@ def analyze_position(fen, stockfish_path=None):
         "fen": board.fen(),
         "eval": eval_score / 100 if eval_score is not None else None,
         "best_move": best_move_san,
-        "best_move_uci": best_move_uci
+        "best_move_uci": best_move_uci,
+        "top_moves": top_moves
     }
 
 
 def _evaluate_board(board, stockfish_path):
-    _, eval_score, best_move = evaluate_position(
-        (board.fen(), stockfish_path, _analysis_depth(), _seconds_per_position())
+    _, eval_score, best_move, top_moves = evaluate_position(
+        (board.fen(), stockfish_path, _analysis_depth(), _seconds_per_position(), _multipv())
     )
-    return eval_score, best_move
+    return eval_score, best_move, top_moves
 
 
 def _parse_legal_move(board, move_text):
@@ -663,19 +774,23 @@ def analyze_candidate_move(fen, move_text, stockfish_path=None):
     stockfish_path = _resolve_stockfish_path(stockfish_path)
     san = board.san(move)
     side_to_move = board.turn
-    eval_before, best_move = _evaluate_board(board, stockfish_path)
+    eval_before, best_move_uci, top_moves = _evaluate_board(board, stockfish_path)
+    played_line = next((line for line in top_moves if line.get("move_uci") == move.uci()), None)
+    top_move_rank = top_moves.index(played_line) + 1 if played_line else None
 
     best_move_san = None
+    best_move = _move_from_uci(best_move_uci)
     if best_move and best_move != move:
         try:
             best_move_san = board.san(best_move)
         except ValueError:
-            best_move_san = best_move.uci()
+            best_move_san = best_move_uci
 
     is_sacrifice = is_sacrifice_move(board, move)
     board_before = board.copy()
     board.push(move)
-    eval_after, _ = _evaluate_board(board, stockfish_path)
+    eval_after, _, _ = _evaluate_board(board, stockfish_path)
+    played_eval_for_loss = played_line.get("eval_cp") if played_line else eval_after
     move_problem = analyze_move_problem(board_before, move, board)
     is_checkmate = board.is_checkmate()
     is_stalemate = board.is_stalemate()
@@ -686,12 +801,14 @@ def analyze_candidate_move(fen, move_text, stockfish_path=None):
         abs_delta = 0
     elif is_stalemate:
         abs_delta = 0 if eval_before is None or abs(eval_before) < 200 else 100
-    elif eval_before is not None and eval_after is not None:
+    elif eval_before is not None and played_eval_for_loss is not None:
         if side_to_move == chess.WHITE:
-            delta = eval_before - eval_after
+            delta = eval_before - played_eval_for_loss
         else:
-            delta = eval_after - eval_before
+            delta = played_eval_for_loss - eval_before
         abs_delta = min(max(0, delta), 800)
+
+    expected_loss = _expected_loss(eval_before, played_eval_for_loss, side_to_move)
 
     is_competitive = True
     if eval_before is not None:
@@ -700,11 +817,12 @@ def analyze_candidate_move(fen, move_text, stockfish_path=None):
         elif side_to_move == chess.BLACK and eval_before < -500:
             is_competitive = False
 
-    is_miss = is_missed_win(board_before, best_move, move, eval_before, eval_after, side_to_move)
+    is_miss = is_missed_win(board_before, best_move, move, eval_before, played_eval_for_loss, side_to_move)
     quality, comment = determine_move_quality(
         abs_delta, delta, side_to_move, False, False, is_sacrifice,
         eval_after, eval_before, is_checkmate=is_checkmate, best_move_san=best_move_san,
-        is_competitive=is_competitive, move_problem=move_problem, is_miss=is_miss
+        is_competitive=is_competitive, move_problem=move_problem, is_miss=is_miss,
+        expected_loss=expected_loss, top_move_rank=top_move_rank
     )
 
     return {
@@ -716,7 +834,9 @@ def analyze_candidate_move(fen, move_text, stockfish_path=None):
         "eval": eval_after / 100 if eval_after is not None else None,
         "eval_before": eval_before / 100 if eval_before is not None else None,
         "best_move": best_move_san,
-        "cp_loss": abs_delta
+        "cp_loss": abs_delta,
+        "expected_loss": round(expected_loss * 100, 2) if expected_loss is not None else None,
+        "top_moves": top_moves
     }
 
 
@@ -749,17 +869,19 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
     
     analysis_depth = _analysis_depth()
     time_limit = _seconds_per_position()
+    multipv = _multipv()
     
     # Prepare unique positions for parallel processing.
     unique_positions = list(dict.fromkeys(pos.fen() for pos in positions))
     position_data = [
-        (fen, stockfish_path, analysis_depth, time_limit)
+        (fen, stockfish_path, analysis_depth, time_limit, multipv)
         for fen in unique_positions
     ]
     
     # Create evaluation cache (stores both eval and best move)
     eval_cache = {}
     best_move_cache = {}
+    top_moves_cache = {}
 
     max_workers = _analysis_workers(len(position_data))
 
@@ -771,9 +893,10 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
         # Collect results as they complete
         for future in concurrent.futures.as_completed(futures):
             try:
-                fen, score, best_move = future.result()
+                fen, score, best_move, top_moves = future.result()
                 eval_cache[fen] = score
                 best_move_cache[fen] = best_move
+                top_moves_cache[fen] = top_moves
             except Exception as e:
                 print(f"An error occurred during parallel processing: {e}")
     
@@ -796,11 +919,14 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
 
         # Get the best move from cache and convert to SAN
         best_move_uci = best_move_cache.get(pos_before_fen)
+        top_moves = top_moves_cache.get(pos_before_fen, [])
+        played_line = next((line for line in top_moves if line.get("move_uci") == move.uci()), None)
+        top_move_rank = top_moves.index(played_line) + 1 if played_line else None
         best_move_san = None
-        if best_move_uci and best_move_uci != move:
+        if best_move_uci and best_move_uci != move.uci():
             try:
-                best_move_san = curr_board.san(best_move_uci)
-            except:
+                best_move_san = curr_board.san(_move_from_uci(best_move_uci))
+            except ValueError:
                 pass
 
         # Check if this move is a sacrifice BEFORE making the move
@@ -812,6 +938,7 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
         curr_board.push(move)
         pos_after_fen = curr_board.fen()
         eval_after = eval_cache.get(pos_after_fen)
+        played_eval_for_loss = played_line.get("eval_cp") if played_line else eval_after
 
         # Analyze what went wrong with this move (for bad moves)
         move_problem = analyze_move_problem(board_before, move, curr_board)
@@ -834,17 +961,19 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
         elif is_stalemate:
             # Stalemate might be good or bad depending on position
             abs_delta = 0 if eval_before is None or abs(eval_before) < 200 else 100
-        elif eval_before is not None and eval_after is not None:
+        elif eval_before is not None and played_eval_for_loss is not None:
             if side_to_move == chess.WHITE:
                 # White wants eval to stay high/increase. Loss = how much eval dropped
-                delta = eval_before - eval_after
+                delta = eval_before - played_eval_for_loss
             else:
                 # Black wants eval to decrease. Loss = how much eval increased (bad for black)
-                delta = eval_after - eval_before
+                delta = played_eval_for_loss - eval_before
             # Centipawn loss should be positive when move is worse than best
             abs_delta = max(0, delta)  # Only count as loss if it's actually worse
             # Cap cp_loss to 800 to prevent mate scores from skewing accuracy
             abs_delta = min(abs_delta, 800)
+
+        expected_loss = _expected_loss(eval_before, played_eval_for_loss, side_to_move)
         # Determine if position is competitive (not already winning by too much)
         # Chess.com: brilliant moves only occur in competitive positions
         is_competitive = True
@@ -856,13 +985,15 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
                 is_competitive = False
 
         # Check for "Miss" - missed winning opportunity
-        is_miss = is_missed_win(board_before, best_move_uci, move, eval_before, eval_after, side_to_move)
+        best_move_obj = _move_from_uci(best_move_uci)
+        is_miss = is_missed_win(board_before, best_move_obj, move, eval_before, played_eval_for_loss, side_to_move)
 
         # Use Chess.com-style brilliant logic with commentary
         quality, comment = determine_move_quality(
             abs_delta, delta, side_to_move, is_book, forced, is_sacrifice,
             eval_after, eval_before, is_checkmate=is_checkmate, best_move_san=best_move_san,
-            is_competitive=is_competitive, move_problem=move_problem, is_miss=is_miss
+            is_competitive=is_competitive, move_problem=move_problem, is_miss=is_miss,
+            expected_loss=expected_loss, top_move_rank=top_move_rank
         )
         analysis.append({
             "ply": i + 1,
@@ -873,7 +1004,9 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
             "eval": eval_after / 100 if eval_after is not None else None,  # Convert to pawns
             "eval_before": eval_before / 100 if eval_before is not None else None,  # For accuracy calculation
             "best_move": best_move_san,  # Include best move for mistakes/inaccuracies
-            "cp_loss": abs_delta  # Centipawn loss for accuracy calculation
+            "cp_loss": abs_delta,  # Centipawn loss for accuracy calculation
+            "expected_loss": round(expected_loss * 100, 2) if expected_loss is not None else None,
+            "top_moves": top_moves
         })
     
     return analysis
