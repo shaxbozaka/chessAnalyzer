@@ -119,6 +119,18 @@ const MOVE_LIST_SUFFIX = {
   miss: 'x',
   blunder: '??'
 };
+const BEST_MOVE_ARROW_COLOR = 'rgba(0, 180, 80, 0.8)';
+
+/**
+ * @param {string} from
+ * @param {string} to
+ * @returns {import('react-chessboard/dist/chessboard/types').Arrow}
+ */
+const createBestMoveArrow = (from, to) => [
+  /** @type {import('react-chessboard/dist/chessboard/types').Square} */ (from),
+  /** @type {import('react-chessboard/dist/chessboard/types').Square} */ (to),
+  BEST_MOVE_ARROW_COLOR
+];
 
 // Convert centipawns to win probability using Chess.com-style formula
 // Chess.com uses a stricter sigmoid curve than Lichess
@@ -500,10 +512,11 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
   })() : null;
 
   // Best move arrow
+  /** @returns {import('react-chessboard/dist/chessboard/types').Arrow[]} */
   const getBestMoveArrow = () => {
     // Show explore best move arrow during exploration
     if (exploreMode && exploreBestMove?.from && exploreBestMove?.to) {
-      return [[exploreBestMove.from, exploreBestMove.to, 'rgba(0, 180, 80, 0.8)']];
+      return [createBestMoveArrow(exploreBestMove.from, exploreBestMove.to)];
     }
     // Show regular best move arrow
     if (!showBestMove || !info?.bestMove) return [];
@@ -513,7 +526,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
     }
     try {
       const m = tempChess.move(info.bestMove);
-      if (m) return [[m.from, m.to, 'rgba(0, 180, 80, 0.8)']];
+      if (m) return [createBestMoveArrow(m.from, m.to)];
     } catch {}
     return [];
   };
