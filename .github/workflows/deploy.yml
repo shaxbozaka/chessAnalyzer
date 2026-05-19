@@ -25,6 +25,7 @@ jobs:
             # Pull latest changes
             git fetch origin main
             git reset --hard origin/main
+            git clean -ffdx
 
             # Create/update .env file with secrets
             echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" > .env
