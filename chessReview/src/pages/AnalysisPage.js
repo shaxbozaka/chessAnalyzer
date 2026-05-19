@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import BoardAnalysis, { MOVE_QUALITY, calculateAccuracy } from '../components/BoardAnalysis';
+import BoardAnalysis, { calculateAccuracy } from '../components/BoardAnalysis';
 import GameSummary from '../components/GameSummary';
 
 // Chess.com-style game rating based on average accuracy of both players

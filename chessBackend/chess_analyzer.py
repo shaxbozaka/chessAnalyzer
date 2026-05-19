@@ -5,10 +5,71 @@ import chess.polyglot  # Added for opening book support
 from io import StringIO
 import os
 import concurrent.futures
-import functools
+
+
+DEFAULT_STOCKFISH_PATH = "/usr/games/stockfish"
+DEFAULT_BOOK_PATH = "/app/bookfish.bin"
+DEFAULT_ANALYSIS_DEPTH = 14
+DEFAULT_ANALYSIS_WORKERS = 2
+DEFAULT_MAX_ANALYSIS_PLIES = 300
+DEFAULT_SECONDS_PER_POSITION = 5.0
+
+
+class AnalysisInputError(ValueError):
+    """Raised when a submitted PGN/FEN cannot be analyzed."""
+
+
+class AnalysisConfigError(RuntimeError):
+    """Raised when the server-side analysis configuration is invalid."""
+
+
+def _env_int(name, default, minimum=1):
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, value)
+
+
+def _env_float(name, default, minimum=0.1):
+    try:
+        value = float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, value)
+
+
+def _resolve_stockfish_path(stockfish_path=None):
+    path = stockfish_path or os.environ.get("STOCKFISH_PATH", DEFAULT_STOCKFISH_PATH)
+    if not os.path.isfile(path) or not os.access(path, os.X_OK):
+        raise AnalysisConfigError("Stockfish binary is not configured or is not executable.")
+    return path
+
+
+def _resolve_book_path(book_path=None):
+    path = book_path or os.environ.get("BOOK_PATH", DEFAULT_BOOK_PATH)
+    return path if path and os.path.isfile(path) else None
+
+
+def _analysis_depth():
+    return _env_int("ANALYSIS_DEPTH", DEFAULT_ANALYSIS_DEPTH)
+
+
+def _analysis_workers(position_count):
+    cpu_count = os.cpu_count() or 1
+    configured = _env_int("ANALYSIS_WORKERS", DEFAULT_ANALYSIS_WORKERS)
+    return max(1, min(configured, cpu_count, position_count))
+
+
+def _seconds_per_position():
+    return _env_float("ANALYSIS_SECONDS_PER_POSITION", DEFAULT_SECONDS_PER_POSITION)
+
 
 # Function to check if a move is in the opening book
 def is_book_move(board, book_path, cache=None):
+    if not book_path:
+        return False
+
     # Use a dictionary cache to avoid repeated lookups
     if cache is None:
         cache = {}
@@ -158,22 +219,24 @@ def determine_move_quality(abs_delta, delta, side_to_move, is_book, forced, is_s
 # Worker function for parallel evaluation
 def evaluate_position(position_data):
     """Evaluate a single position using Stockfish and get best move"""
-    position, stockfish_path, depth = position_data
-
-    # Create a new engine instance for this process
-    engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
-
-    # Configure engine for accurate analysis (full strength)
-    engine.configure({
-        "Threads": 1,              # Use single thread per process
-        "Hash": 64,               # Hash size per engine instance
-    })
+    fen, stockfish_path, depth, time_limit = position_data
+    position = chess.Board(fen)
 
     # Evaluate the position and get best move
     eval_score = None
     best_move = None
+    engine = None
     try:
-        info = engine.analyse(position, chess.engine.Limit(depth=depth))
+        # Create a new engine instance for this process
+        engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
+
+        # Configure engine for accurate analysis with bounded per-process cost.
+        engine.configure({
+            "Threads": 1,
+            "Hash": 64,
+        })
+
+        info = engine.analyse(position, chess.engine.Limit(depth=depth, time=time_limit))
         eval_score = info["score"].white().score(mate_score=10000)
         # Get the best move (PV = principal variation)
         if "pv" in info and len(info["pv"]) > 0:
@@ -181,9 +244,10 @@ def evaluate_position(position_data):
     except Exception as e:
         print(f"Error evaluating position: {e}")
     finally:
-        engine.quit()
+        if engine is not None:
+            engine.quit()
 
-    return position.fen(), eval_score, best_move
+    return fen, eval_score, best_move
 
 
 PIECE_VALUES = {
@@ -530,18 +594,148 @@ def analyze_move_problem(board_before, move, board_after):
     return result
 
 
+def _parse_game(pgn_data):
+    if not pgn_data or not pgn_data.strip():
+        raise AnalysisInputError("PGN data is required.")
+
+    game = chess.pgn.read_game(StringIO(pgn_data.strip()))
+    if game is None:
+        raise AnalysisInputError("Unable to parse PGN data.")
+    return game
+
+
+def analyze_position(fen, stockfish_path=None):
+    try:
+        board = chess.Board(fen)
+    except ValueError as exc:
+        raise AnalysisInputError("Invalid FEN position.") from exc
+
+    stockfish_path = _resolve_stockfish_path(stockfish_path)
+    eval_score, best_move = _evaluate_board(board, stockfish_path)
+
+    best_move_san = None
+    best_move_uci = None
+    if best_move is not None:
+        best_move_uci = best_move.uci()
+        try:
+            best_move_san = board.san(best_move)
+        except ValueError:
+            best_move_san = best_move_uci
+
+    return {
+        "fen": board.fen(),
+        "eval": eval_score / 100 if eval_score is not None else None,
+        "best_move": best_move_san,
+        "best_move_uci": best_move_uci
+    }
+
+
+def _evaluate_board(board, stockfish_path):
+    _, eval_score, best_move = evaluate_position(
+        (board.fen(), stockfish_path, _analysis_depth(), _seconds_per_position())
+    )
+    return eval_score, best_move
+
+
+def _parse_legal_move(board, move_text):
+    try:
+        return board.parse_san(move_text)
+    except ValueError:
+        pass
+
+    try:
+        move = chess.Move.from_uci(move_text)
+    except ValueError as exc:
+        raise AnalysisInputError("Move must be legal SAN or UCI notation.") from exc
+
+    if move not in board.legal_moves:
+        raise AnalysisInputError("Move is not legal in the provided position.")
+    return move
+
+
+def analyze_candidate_move(fen, move_text, stockfish_path=None):
+    try:
+        board = chess.Board(fen)
+    except ValueError as exc:
+        raise AnalysisInputError("Invalid FEN position.") from exc
+
+    move = _parse_legal_move(board, move_text)
+    stockfish_path = _resolve_stockfish_path(stockfish_path)
+    san = board.san(move)
+    side_to_move = board.turn
+    eval_before, best_move = _evaluate_board(board, stockfish_path)
+
+    best_move_san = None
+    if best_move and best_move != move:
+        try:
+            best_move_san = board.san(best_move)
+        except ValueError:
+            best_move_san = best_move.uci()
+
+    is_sacrifice = is_sacrifice_move(board, move)
+    board_before = board.copy()
+    board.push(move)
+    eval_after, _ = _evaluate_board(board, stockfish_path)
+    move_problem = analyze_move_problem(board_before, move, board)
+    is_checkmate = board.is_checkmate()
+    is_stalemate = board.is_stalemate()
+
+    delta = 0
+    abs_delta = 0
+    if is_checkmate:
+        abs_delta = 0
+    elif is_stalemate:
+        abs_delta = 0 if eval_before is None or abs(eval_before) < 200 else 100
+    elif eval_before is not None and eval_after is not None:
+        if side_to_move == chess.WHITE:
+            delta = eval_before - eval_after
+        else:
+            delta = eval_after - eval_before
+        abs_delta = min(max(0, delta), 800)
+
+    is_competitive = True
+    if eval_before is not None:
+        if side_to_move == chess.WHITE and eval_before > 500:
+            is_competitive = False
+        elif side_to_move == chess.BLACK and eval_before < -500:
+            is_competitive = False
+
+    is_miss = is_missed_win(board_before, best_move, move, eval_before, eval_after, side_to_move)
+    quality, comment = determine_move_quality(
+        abs_delta, delta, side_to_move, False, False, is_sacrifice,
+        eval_after, eval_before, is_checkmate=is_checkmate, best_move_san=best_move_san,
+        is_competitive=is_competitive, move_problem=move_problem, is_miss=is_miss
+    )
+
+    return {
+        "ply": 1,
+        "move": san,
+        "quality": quality,
+        "is_book": False,
+        "comment": comment,
+        "eval": eval_after / 100 if eval_after is not None else None,
+        "eval_before": eval_before / 100 if eval_before is not None else None,
+        "best_move": best_move_san,
+        "cp_loss": abs_delta
+    }
+
+
 def analyze_game(pgn_data, stockfish_path=None, book_path=None):
+    game = _parse_game(pgn_data)
+
     # Use environment variables if parameters are not provided
-    if stockfish_path is None:
-        stockfish_path = os.environ.get('STOCKFISH_PATH', '/usr/games/stockfish')
-    if book_path is None:
-        book_path = os.environ.get('BOOK_PATH', '/app/bookfish.bin')
-    
-    game = chess.pgn.read_game(StringIO(pgn_data))
+    stockfish_path = _resolve_stockfish_path(stockfish_path)
+    book_path = _resolve_book_path(book_path)
     board = game.board()
     
     # Process all moves at once to prepare the analysis
     moves = list(game.mainline_moves())
+    max_plies = _env_int("MAX_ANALYSIS_PLIES", DEFAULT_MAX_ANALYSIS_PLIES)
+    if len(moves) > max_plies:
+        raise AnalysisInputError(f"Game is too long to analyze. Maximum supported plies: {max_plies}.")
+    if not moves:
+        return []
+
     positions = []
     
     # Setup the initial board
@@ -553,18 +747,21 @@ def analyze_game(pgn_data, stockfish_path=None, book_path=None):
         curr_board.push(move)
         positions.append(curr_board.copy())
     
-    # Use depth 18 for accuracy (Chess.com uses depth 18-20)
-    analysis_depth = 18
+    analysis_depth = _analysis_depth()
+    time_limit = _seconds_per_position()
     
-    # Prepare data for parallel processing
-    position_data = [(pos, stockfish_path, analysis_depth) for pos in positions]
+    # Prepare unique positions for parallel processing.
+    unique_positions = list(dict.fromkeys(pos.fen() for pos in positions))
+    position_data = [
+        (fen, stockfish_path, analysis_depth, time_limit)
+        for fen in unique_positions
+    ]
     
     # Create evaluation cache (stores both eval and best move)
     eval_cache = {}
     best_move_cache = {}
 
-    # Determine optimal number of workers based on CPU cores
-    max_workers = min(os.cpu_count(), len(positions))
+    max_workers = _analysis_workers(len(position_data))
 
     # Process positions in parallel using ProcessPoolExecutor
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -694,5 +891,3 @@ def get_moves_needing_review(pgn_data, stockfish_path=None, book_path=None):
         if move["quality"] in review_qualities:
             moves_to_review.append(move)
     return moves_to_review
-
-

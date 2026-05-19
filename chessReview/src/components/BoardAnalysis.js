@@ -112,6 +112,13 @@ const QualityIcon = ({ quality, size = 24 }) => {
 const HIGHLIGHT_QUALITIES = ['brilliant', 'inaccuracy', 'mistake', 'miss', 'blunder'];
 // These get highlighted on the board with background color and icon
 const BOARD_HIGHLIGHT_QUALITIES = ['brilliant', 'great', 'excellent', 'best', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder', 'book', 'forced'];
+const MOVE_LIST_SUFFIX = {
+  brilliant: '!!',
+  inaccuracy: '?!',
+  mistake: '?',
+  miss: 'x',
+  blunder: '??'
+};
 
 // Convert centipawns to win probability using Chess.com-style formula
 // Chess.com uses a stricter sigmoid curve than Lichess
@@ -270,19 +277,11 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
       body: JSON.stringify({ pgn_data: pgn.trim() })
     })
       .then(async r => {
-        if (!r.ok) throw new Error(`Error: ${r.status}`);
-        const text = await r.text();
-        console.log('=== RAW RESPONSE TEXT (first 500 chars) ===');
-        console.log(text.substring(0, 500));
-        return JSON.parse(text);
+        const data = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(data?.detail || `Analysis request failed: ${r.status}`);
+        return data;
       })
       .then(data => {
-        // Debug: log raw response JSON and specific cp_loss values
-        console.log('=== PARSED JSON DEBUG ===');
-        console.log('Raw data.moves[0]:', data?.moves?.[0]);
-        console.log('cp_loss in first move:', data?.moves?.[0]?.cp_loss);
-        console.log('All keys in first move:', data?.moves?.[0] ? Object.keys(data.moves[0]) : 'N/A');
-
         if (data?.moves?.length) {
           const analysisData = data.moves.map((item, idx) => {
             return {
@@ -296,9 +295,6 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
               cpLoss: item.cp_loss ?? null
             };
           });
-          const dataId = Date.now();
-          console.log(`[${dataId}] First analysisData item cpLoss:`, analysisData[0]?.cpLoss);
-          console.log(`[${dataId}] Calling setAnalysis and onAnalysisComplete with ${analysisData.length} moves`);
           setAnalysis(analysisData);
           if (onAnalysisComplete) onAnalysisComplete(analysisData);
         }
@@ -364,20 +360,20 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
   const evaluateMove = async (fen, moveSan, isWhiteTurn) => {
     setEvalLoading(true);
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await fetch('/api/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pgn_data: `[FEN "${fen}"]\n\n1. ${moveSan}` })
+        body: JSON.stringify({ fen, move: moveSan })
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.moves?.[0]) {
+        if (data) {
           setLastMoveEval({
             move: moveSan,
-            quality: data.moves[0].quality,
-            comment: data.moves[0].comment,
-            eval: data.moves[0].eval,
-            bestMove: data.moves[0].best_move,
+            quality: data.quality,
+            comment: data.comment,
+            eval: data.eval,
+            bestMove: data.best_move,
             isWhite: isWhiteTurn
           });
         }
@@ -437,24 +433,23 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
     setExploreBestMove(null);
     try {
       const fen = exploreChess.fen();
-      // Create a minimal PGN with just the FEN to get best move
-      const response = await fetch('/api/analyze', {
+      const response = await fetch('/api/position', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pgn_data: `[FEN "${fen}"]\n[SetUp "1"]\n\n1. e4` }) // Dummy move to trigger analysis
+        body: JSON.stringify({ fen })
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.moves?.[0]?.best_move) {
+        if (data.best_move) {
           // Parse the best move and show as arrow
           const tempChess = new Chess(fen);
           try {
-            const move = tempChess.move(data.moves[0].best_move);
+            const move = tempChess.move(data.best_move);
             if (move) {
               setExploreBestMove({ from: move.from, to: move.to, san: move.san });
             }
           } catch {
-            setExploreBestMove({ san: data.moves[0].best_move });
+            setExploreBestMove({ san: data.best_move });
           }
         }
       }
@@ -616,7 +611,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
                 <span className="font-bold text-white text-lg capitalize">{info.label}</span>
                 <span className="text-white/90 ml-2">{info.moveText}</span>
               </div>
-              {info.eval && (
+              {info.eval !== null && info.eval !== undefined && (
                 <span className="text-white font-medium text-lg">
                   {info.eval > 0 ? '+' : ''}{info.eval}
                 </span>
@@ -743,7 +738,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
                     style={wHighlight ? { color: QUALITY_COLORS[wQ] } : { color: '#e5e5e5' }}
                   >
                     {wMove?.san}
-                    {wHighlight && <span className="ml-1 text-xs">{'?!?'.charAt(['inaccuracy','mistake','blunder'].indexOf(wQ)) || '!!'}</span>}
+                    {wHighlight && <span className="ml-1 text-xs">{MOVE_LIST_SUFFIX[wQ]}</span>}
                   </button>
                   {bMove ? (
                     <button
@@ -752,7 +747,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
                       style={bHighlight ? { color: QUALITY_COLORS[bQ] } : { color: '#e5e5e5' }}
                     >
                       {bMove.san}
-                      {bHighlight && <span className="ml-1 text-xs">{'?!?'.charAt(['inaccuracy','mistake','blunder'].indexOf(bQ)) || '!!'}</span>}
+                      {bHighlight && <span className="ml-1 text-xs">{MOVE_LIST_SUFFIX[bQ]}</span>}
                     </button>
                   ) : <div className="flex-1" />}
                 </div>

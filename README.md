@@ -48,8 +48,8 @@ docker-compose up -d --build
 ```
 
 3. Access your application:
-   - Frontend: http://your-server-ip
-   - Backend API: http://your-server-ip:5000
+   - Frontend: http://your-server-ip:3002
+   - Backend API: http://your-server-ip:8081
 
 ### Monitoring and Management
 
@@ -66,4 +66,4 @@ docker-compose up -d --build
 
 ## Configuration
 
-You can modify environment variables and ports in the `docker-compose.yml` file to suit your server setup.
+You can modify environment variables and ports in the `docker-compose.yml` file to suit your server setup. By default, local backend development runs on port 8080, while Docker runs the backend inside the container on port 5000 and exposes it on host port 8081.

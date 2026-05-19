@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import getGameReview from '../utils/gameReview';
 
 // Performance rating icon component
 const PerformanceIcon = ({ rating }) => {
@@ -96,7 +99,26 @@ const calculatePhasePerformance = (analysis, isWhite, startPly, endPly) => {
 };
 
 const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, white, black }) => {
+  const [review, setReview] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+
   if (!analysis || analysis.length === 0) return null;
+
+  const handleGenerateReview = async () => {
+    if (!pgn || reviewLoading) return;
+
+    setReviewLoading(true);
+    setReviewError('');
+    try {
+      const text = await getGameReview({ pgn, username });
+      setReview(text);
+    } catch (err) {
+      setReviewError(err.message);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
 
   // Define game phases (approximate move numbers)
   // Opening: first 10 moves (20 plies)
@@ -220,6 +242,40 @@ const GameSummary = ({ analysis, pgn, username, whiteAccuracy, blackAccuracy, wh
               <MoveQualityStats analysis={analysis} isWhite={false} />
             </div>
           </div>
+        </div>
+
+        {/* AI review */}
+        <div className="mt-4 pt-3 border-t border-neutral-700">
+          <button
+            type="button"
+            onClick={handleGenerateReview}
+            disabled={reviewLoading || !pgn}
+            className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 rounded text-white text-sm font-medium transition-colors"
+          >
+            {reviewLoading ? 'Generating...' : review ? 'Refresh Review' : 'AI Review'}
+          </button>
+          {reviewError && (
+            <div className="mt-2 text-xs text-red-300">{reviewError}</div>
+          )}
+          {review && (
+            <div className="mt-3 max-h-80 overflow-y-auto text-xs text-neutral-200 leading-relaxed space-y-2">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({ children }) => <h4 className="text-sm font-semibold text-white mt-2">{children}</h4>,
+                  h2: ({ children }) => <h5 className="text-xs font-semibold text-neutral-100 mt-3">{children}</h5>,
+                  p: ({ children }) => <p className="text-neutral-200">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
+                  li: ({ children }) => <li className="text-neutral-200">{children}</li>,
+                  blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-500 pl-2 text-neutral-300">{children}</blockquote>,
+                  strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>
+                }}
+              >
+                {review}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
       </div>
     </div>

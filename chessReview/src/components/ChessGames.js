@@ -12,9 +12,123 @@ const ChessGames = () => {
   const [hasMore, setHasMore] = useState(true);
   const [pageLoading, setPageLoading] = useState(false);
   const navigate = useNavigate();
-  
-  // Reference to observe the last game element
+  const usernameRef = useRef('');
   const observer = useRef();
+
+  useEffect(() => {
+    usernameRef.current = username;
+  }, [username]);
+
+  // New function to fetch games from a specific archive
+  const fetchArchiveGames = useCallback(async (archiveUrl) => {
+    try {
+      const [year, month] = archiveUrl.split('/').slice(-2);
+      const gamesResponse = await fetch(archiveUrl);
+
+      if (!gamesResponse.ok) {
+        throw new Error(`Failed to fetch games: ${gamesResponse.status}`);
+      }
+
+      const gamesData = await gamesResponse.json();
+
+      if (!gamesData.games || gamesData.games.length === 0) {
+        return []; // No games in this archive
+      }
+
+      // Add year/month to each game for routing and sort by end_time in descending order
+      const archiveGames = gamesData.games
+        .map(g => ({ ...g, year, month }))
+        .sort((a, b) => b.end_time - a.end_time); // Sort newest first
+
+      return archiveGames;
+    } catch (err) {
+      console.error('Error fetching archive games:', err);
+      return [];
+    }
+  }, []);
+
+  const fetchGames = useCallback(async (usernameToFetch = null) => {
+    const userToFetch = (usernameToFetch || usernameRef.current).trim();
+
+    if (!userToFetch) {
+      setError('Please enter a Chess.com username');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      setGames([]);
+      setArchives([]);
+      setCurrentArchiveIndex(0);
+      setHasMore(true);
+
+      const archivesResponse = await fetch(`https://api.chess.com/pub/player/${userToFetch}/games/archives`);
+
+      if (!archivesResponse.ok) {
+        throw new Error(`User not found or API error: ${archivesResponse.status}`);
+      }
+
+      const archivesData = await archivesResponse.json();
+
+      if (!archivesData.archives || archivesData.archives.length === 0) {
+        throw new Error('No game archives found for this user');
+      }
+
+      const allArchives = [...archivesData.archives].reverse();
+      setArchives(allArchives);
+      setUsername(userToFetch);
+
+      for (let index = 0; index < allArchives.length; index++) {
+        const archiveGames = await fetchArchiveGames(allArchives[index]);
+        if (archiveGames.length > 0) {
+          setGames(archiveGames);
+          setCurrentArchiveIndex(index);
+          localStorage.setItem('ai-chess-coach-username', userToFetch);
+          return;
+        }
+      }
+
+      throw new Error('No games found in any archive');
+    } catch (err) {
+      setError(err.message);
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchArchiveGames]);
+
+  // Function to load more games when scrolling
+  const loadMoreGames = useCallback(async () => {
+    if (pageLoading || !hasMore || archives.length === 0) return;
+
+    if (currentArchiveIndex + 1 >= archives.length) {
+      setHasMore(false);
+      return;
+    }
+
+    setPageLoading(true);
+
+    try {
+      for (let index = currentArchiveIndex + 1; index < archives.length; index++) {
+        const newGames = await fetchArchiveGames(archives[index]);
+        if (newGames.length > 0) {
+          setGames(prevGames => [...prevGames, ...newGames]);
+          setCurrentArchiveIndex(index);
+          return;
+        }
+      }
+
+      setCurrentArchiveIndex(archives.length - 1);
+      setHasMore(false);
+    } catch (err) {
+      console.error('Error loading more games:', err);
+    } finally {
+      setPageLoading(false);
+    }
+  }, [archives, currentArchiveIndex, fetchArchiveGames, hasMore, pageLoading]);
+
+  // Reference to observe the last game element
   const lastGameElementRef = useCallback(node => {
     if (loading || pageLoading) return;
     if (observer.current) observer.current.disconnect();
@@ -24,150 +138,16 @@ const ChessGames = () => {
       }
     }, { threshold: 0.1 });
     if (node) observer.current.observe(node);
-  }, [loading, pageLoading, hasMore]);
+  }, [loading, pageLoading, hasMore, loadMoreGames]);
 
   // Load saved username and fetch games on component mount
   useEffect(() => {
     const savedUsername = localStorage.getItem('ai-chess-coach-username');
     if (savedUsername) {
       setUsername(savedUsername);
-      // Allow component to update with the username first
-      setTimeout(() => {
-        fetchGames(savedUsername);
-      }, 100);
+      fetchGames(savedUsername);
     }
-  }, []);
-
-  const fetchGames = async (usernameToFetch = null) => {
-    const userToFetch = usernameToFetch || username;
-    
-    if (!userToFetch.trim()) {
-      setError('Please enter a Chess.com username');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      setGames([]);
-      // Reset pagination state
-      setArchives([]);
-      setCurrentArchiveIndex(0);
-      setHasMore(true);
-
-      // First, fetch the archives (available months)
-      const archivesResponse = await fetch(`https://api.chess.com/pub/player/${userToFetch}/games/archives`);
-      
-      if (!archivesResponse.ok) {
-        throw new Error(`User not found or API error: ${archivesResponse.status}`);
-      }
-      
-      const archivesData = await archivesResponse.json();
-      
-      if (!archivesData.archives || archivesData.archives.length === 0) {
-        throw new Error('No game archives found for this user');
-      }
-      
-      // Store all archives for pagination
-      const allArchives = archivesData.archives.reverse(); // Reverse to start with most recent
-      setArchives(allArchives);
-      
-      // Get the most recent month's games
-      const initialGames = await fetchArchiveGames(allArchives[0], userToFetch);
-      
-      if (initialGames.length === 0) {
-        // If the most recent month has no games, try to find games in older months
-        let foundGames = false;
-        let index = 1;
-        
-        while (!foundGames && index < allArchives.length) {
-          const olderGames = await fetchArchiveGames(allArchives[index], userToFetch);
-          if (olderGames.length > 0) {
-            setGames(olderGames);
-            setCurrentArchiveIndex(index);
-            foundGames = true;
-          }
-          index++;
-        }
-        
-        if (!foundGames) {
-          throw new Error('No games found in any archive');
-        }
-      } else {
-        setGames(initialGames);
-      }
-      
-      localStorage.setItem('ai-chess-coach-username', userToFetch);
-
-    } catch (err) {
-      setError(err.message);
-      setHasMore(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // New function to fetch games from a specific archive
-  const fetchArchiveGames = async (archiveUrl, userToFetch) => {
-    try {
-      const [year, month] = archiveUrl.split('/').slice(-2);
-      const gamesResponse = await fetch(archiveUrl);
-      
-      if (!gamesResponse.ok) {
-        throw new Error(`Failed to fetch games: ${gamesResponse.status}`);
-      }
-      
-      const gamesData = await gamesResponse.json();
-      
-      if (!gamesData.games || gamesData.games.length === 0) {
-        return []; // No games in this archive
-      }
-      
-      // Add year/month to each game for routing and sort by end_time in descending order
-      const archiveGames = gamesData.games
-        .map(g => ({ ...g, year, month }))
-        .sort((a, b) => b.end_time - a.end_time); // Sort newest first
-      
-      return archiveGames;
-    } catch (err) {
-      console.error('Error fetching archive games:', err);
-      return [];
-    }
-  };
-
-  // Function to load more games when scrolling
-  const loadMoreGames = async () => {
-    if (pageLoading || !hasMore || archives.length === 0) return;
-    
-    const nextArchiveIndex = currentArchiveIndex + 1;
-    
-    if (nextArchiveIndex >= archives.length) {
-      setHasMore(false);
-      return;
-    }
-    
-    setPageLoading(true);
-    
-    try {
-      const nextArchiveUrl = archives[nextArchiveIndex];
-      const newGames = await fetchArchiveGames(nextArchiveUrl, username);
-      
-      if (newGames.length === 0) {
-        // Skip empty archives and move to the next one
-        setCurrentArchiveIndex(nextArchiveIndex);
-        setPageLoading(false); // Important to set this to false before trying the next archive
-        loadMoreGames(); // Try the next archive
-        return;
-      }
-      
-      setGames(prevGames => [...prevGames, ...newGames]);
-      setCurrentArchiveIndex(nextArchiveIndex);
-    } catch (err) {
-      console.error('Error loading more games:', err);
-    } finally {
-      setPageLoading(false);
-    }
-  };
+  }, [fetchGames]);
 
   // Extract opening name from PGN
   const extractOpeningFromPGN = (pgn) => {
@@ -176,13 +156,13 @@ const ChessGames = () => {
     if (openingMatch && openingMatch[1]) {
       return openingMatch[1];
     }
-    
+
     // If Opening tag is not found, try ECO tag
     const ecoMatch = pgn.match(/\[ECO "([^"]+)"\]/);
     if (ecoMatch && ecoMatch[1]) {
       return `ECO: ${ecoMatch[1]}`;
     }
-    
+
     return 'Opening not available';
   };
 
@@ -195,11 +175,11 @@ const ChessGames = () => {
   const handleAnalyze = (game) => {
     // Use game.uuid if available, else fallback to game.url or index
     let gameId = game.uuid || (game.url ? game.url.split('/').pop() : game.end_time);
-    
+
     // Determine if the user was white or black
     const isWhite = game.white.username.toLowerCase() === username.toLowerCase();
     const playerColor = isWhite ? 'white' : 'black';
-    
+
     navigate(`/analysis/${game.year}/${game.month}/${gameId}`, {
       state: {
         pgn: game.pgn,
@@ -218,7 +198,7 @@ const ChessGames = () => {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && fetchGames()}
+              onKeyDown={(e) => e.key === 'Enter' && fetchGames()}
               placeholder="Enter Chess.com username"
               className="px-4 py-2 w-full sm:w-64 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 transition-colors duration-200"
             />
@@ -251,11 +231,11 @@ const ChessGames = () => {
             const playerColor = isWhite ? 'white' : 'black';
             const opponentColor = isWhite ? 'black' : 'white';
             const opponent = game[opponentColor].username;
-            
+
             // Determine game result
             let result = 'draw';
             let resultText = 'Draw';
-            
+
             if (game.white.result === 'win') {
               result = isWhite ? 'win' : 'loss';
               resultText = isWhite ? 'Win' : 'Loss';
@@ -271,7 +251,7 @@ const ChessGames = () => {
             const isLastElement = index === games.length - 1;
 
             return (
-              <div 
+              <div
                 key={game.uuid || game.url || index}
                 ref={isLastElement ? lastGameElementRef : null}
                 className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-card hover:shadow-card-hover transition-shadow duration-300 overflow-hidden border border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row items-center sm:items-stretch p-4 sm:p-6 gap-4"
@@ -303,14 +283,14 @@ const ChessGames = () => {
               Enter a Chess.com username and click "Fetch Games" to see recent games
             </div>
           )}
-          
+
           {/* Loading indicator for pagination */}
           {pageLoading && (
             <div className="flex justify-center my-6">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
           )}
-          
+
           {/* End of games message */}
           {!hasMore && games.length > 0 && !pageLoading && (
             <div className="text-center text-gray-500 dark:text-gray-400 my-6">

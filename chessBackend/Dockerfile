@@ -18,8 +18,8 @@ COPY . .
 # Set environment variable for Stockfish path
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV BOOK_PATH=/app/src/bookfish.bin
-ENV PORT=8080
+ENV PORT=5000
 
-EXPOSE 8080
+EXPOSE 5000
 
 CMD ["python", "server.py"]
