@@ -157,9 +157,10 @@ const AnalysisPage = () => {
             <div className="flex flex-wrap items-center gap-2 text-sm">
               {rating && (
                 <span
-                  className="rounded-full border border-current/30 px-3 py-1 font-medium"
+                  className="inline-flex items-center gap-2 font-semibold"
                   style={{ color: rating.color }}
                 >
+                  <span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />
                   {rating.label}
                 </span>
               )}
