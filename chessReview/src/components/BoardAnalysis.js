@@ -246,7 +246,7 @@ export const MOVE_QUALITY = Object.fromEntries(
   }])
 );
 
-const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, playerColor }) => {
+const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, playerColor, summary }) => {
   const [chess] = useState(new Chess());
   const [position, setPosition] = useState('start');
   const [moves, setMoves] = useState([]);
@@ -561,15 +561,15 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
   };
 
   return (
-    <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+    <div className={`grid w-full items-start gap-4 ${summary ? 'xl:grid-cols-[520px_minmax(380px,520px)] 2xl:grid-cols-[520px_minmax(380px,520px)_320px]' : 'xl:grid-cols-[520px_minmax(380px,520px)]'}`}>
       {error && (
-        <div className="rounded-lg border border-red-900/70 bg-red-950/70 p-3 text-sm text-red-200">
+        <div className="rounded-lg border border-red-900/70 bg-red-950/70 p-3 text-sm text-red-200 xl:col-span-2">
           {error}
         </div>
       )}
 
       {/* Board Section */}
-      <div className="w-full xl:w-auto">
+      <div className="w-full xl:sticky xl:top-24 xl:w-[520px]">
         <div className="rounded-lg border border-neutral-700/70 bg-[#242424] p-3 shadow-xl shadow-black/20">
           <div ref={boardRef} className="mx-auto overflow-hidden rounded-md" style={{ width: 480, position: 'relative' }}>
             <Chessboard
@@ -626,16 +626,19 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
             <button onClick={() => goToMove(moves.length)} className="h-10 w-11 rounded bg-neutral-700 text-sm text-white hover:bg-neutral-600">⟩⟩</button>
           </div>
         </div>
+      </div>
 
+      {/* Review rail */}
+      <div className="min-w-0 space-y-4">
         {/* Comment Panel - Chess.com style */}
         {info && !exploreMode && (
-          <div className="mt-3 rounded-lg overflow-hidden shadow-lg" style={{ maxWidth: 480 }}>
+          <div className="overflow-hidden rounded-lg border border-neutral-700/70 bg-[#242424] shadow-xl shadow-black/20">
             <div
               className="flex items-center gap-3 px-4 py-3"
               style={{ backgroundColor: info.color }}
             >
               <QualityIcon quality={info.label?.toLowerCase()} size={28} />
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <span className="font-bold text-white text-lg capitalize">{info.label}</span>
                 <span className="text-white/90 ml-2">{info.moveText}</span>
               </div>
@@ -686,7 +689,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
 
         {/* Explore Mode */}
         {exploreMode && (
-          <div className="mt-3 bg-purple-900/50 border border-purple-700 rounded p-3" style={{ maxWidth: 480 }}>
+          <div className="rounded-lg border border-purple-700/80 bg-purple-950/50 p-3 shadow-xl shadow-black/20">
             <div className="flex items-center justify-between">
               <span className="text-purple-300 font-medium text-sm">Exploring</span>
               <div className="flex gap-1">
@@ -751,10 +754,7 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
             )}
           </div>
         )}
-      </div>
 
-      {/* Move List */}
-      <div className="min-w-0 flex-1">
         <div ref={moveListRef} className="overflow-hidden rounded-lg border border-neutral-700/70 bg-[#242424] shadow-xl shadow-black/20">
           <div className="flex items-center justify-between border-b border-neutral-700/70 bg-neutral-800 px-4 py-3">
             <div>
@@ -803,6 +803,12 @@ const BoardAnalysis = ({ pgn, username, onAnalysisComplete, onLoadingChange, pla
           </div>
         </div>
       </div>
+
+      {summary && (
+        <aside className="min-w-0 xl:col-span-2 2xl:col-span-1">
+          {summary}
+        </aside>
+      )}
     </div>
   );
 };

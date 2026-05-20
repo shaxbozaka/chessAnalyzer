@@ -120,7 +120,7 @@ const AnalysisPage = () => {
   return (
     <div className="min-h-screen bg-[#151515] text-neutral-100">
       <header className="border-b border-neutral-800 bg-[#151515]/95">
-        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={handleBackClick}
@@ -178,23 +178,18 @@ const AnalysisPage = () => {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[1500px] px-5 py-5">
+      <main className="mx-auto w-full max-w-[1400px] px-5 py-5">
         {loading && <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-8 text-center text-blue-300">Loading game...</div>}
         {error && <div className="rounded-lg border border-red-900/70 bg-red-950/40 p-8 text-center text-red-300">{error}</div>}
         {!loading && !error && pgn && (
-          <div className="flex flex-col gap-5 2xl:flex-row">
-            <div className="min-w-0 flex-1">
-              <BoardAnalysis
-                pgn={pgn}
-                username={username}
-                onAnalysisComplete={handleAnalysisComplete}
-                onLoadingChange={handleLoadingChange}
-                playerColor={playerColor}
-              />
-            </div>
-            {/* Game Summary Panel - shows after analysis is complete */}
-            {analysisReady && (
-              <aside className="shrink-0">
+          <div>
+            <BoardAnalysis
+              pgn={pgn}
+              username={username}
+              onAnalysisComplete={handleAnalysisComplete}
+              onLoadingChange={handleLoadingChange}
+              playerColor={playerColor}
+              summary={analysisReady ? (
                 <GameSummary
                   analysis={analysis}
                   whiteAccuracy={whiteAccuracy}
@@ -202,8 +197,8 @@ const AnalysisPage = () => {
                   white={white}
                   black={black}
                 />
-              </aside>
-            )}
+              ) : null}
+            />
           </div>
         )}
       </main>
